@@ -1,0 +1,41 @@
+{
+  "tag": "${REALITY_INBOUND_TAG}",
+  "port": ${REALITY_PORT},
+  "listen": "${REALITY_LISTEN_IP}",
+  "protocol": "vless",
+  "settings": {
+    "clients": [],
+    "decryption": "none"
+  },
+  "sniffing": {
+    "enabled": false,
+    "routeOnly": false,
+    "destOverride": [
+      "http",
+      "tls",
+      "quic",
+      "fakedns"
+    ],
+    "metadataOnly": false
+  },
+  "streamSettings": {
+    "network": "xhttp",
+    "security": "reality",
+    "sockopt": {
+      "acceptProxyProtocol": true
+    },
+    "xhttpSettings": {
+      "host": "",
+      "mode": "auto",
+      "path": "${REALITY_XHTTP_PATH}"
+    },
+    "realitySettings": {
+      "show": false,
+      "xver": 0,
+      "target": "${REALITY_TARGET}",
+      "shortIds": ${REALITY_SHORT_IDS_JSON},
+      "privateKey": "${REALITY_PRIVATE_KEY}",
+      "serverNames": ${REALITY_SERVER_NAMES_JSON}
+    }
+  }
+}

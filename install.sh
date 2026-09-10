@@ -31,6 +31,8 @@ if (( ${#missing_packages[@]} > 0 )); then
   apt-get install -y "${missing_packages[@]}"
 fi
 
+chmod 600 "${ENV_FILE}"
+bash "${SCRIPT_DIR}/scripts/ensure-reality-credentials.sh" "${ENV_FILE}"
 "${SCRIPT_DIR}/scripts/render.sh" "${ENV_FILE}"
 
 set -a
@@ -114,9 +116,17 @@ systemctl reload nginx
 printf '\nNginx and the origin certificate are installed.\n'
 printf 'Domain: %s\n' "${DOMAIN}"
 printf 'Origin for TurboFlare: %s:%s (HTTPS enabled)\n' "${ORIGIN_IP}" "${ORIGIN_PORT}"
-printf 'Xray inbound JSON: %s/xray-inbound.json\n' "${BUILD_DIR}"
+printf 'TurboFlare inbound JSON: %s/xray-inbound.json\n' "${BUILD_DIR}"
+printf 'Reality inbound JSON: %s/xray-reality-inbound.json\n' "${BUILD_DIR}"
+printf 'Both inbound objects: %s/xray-inbounds.json\n' "${BUILD_DIR}"
 printf 'Remnawave Host values: %s/remnawave-host-values.md\n' "${BUILD_DIR}"
+printf 'Remnawave Reality Host values: %s/remnawave-reality-host-values.md\n' "${BUILD_DIR}"
+printf 'Reality client credentials: %s/reality-client-credentials.json\n' "${BUILD_DIR}"
 printf 'Remnawave XHTTP Extra: %s/remnawave-xhttp-extra.json\n' "${BUILD_DIR}"
 
 printf '\nDirect origin check:\n'
 printf 'curl -4vk --resolve %s:443:%s https://%s/\n' "${DOMAIN}" "${ORIGIN_IP}" "${DOMAIN}"
+
+printf '\nExpected listeners after assigning both inbounds to the node:\n'
+printf 'ss -lntp | grep -E ":443|:%s|:%s|:%s"\n' \
+  "${NGINX_INTERNAL_PORT}" "${XRAY_XHTTP_PORT}" "${REALITY_PORT}"

@@ -23,7 +23,17 @@ ORIGIN_IP=203.0.113.10
 ```dotenv
 NGINX_INTERNAL_PORT=8443
 XRAY_XHTTP_PORT=40112
+REALITY_PORT=2443
 ```
+
+При первом запуске `install.sh` сам заменит Reality-заглушки в `.env`: сгенерирует ключевую пару, один short ID и случайный path. Для ручной генерации используйте:
+
+```bash
+xray x25519
+openssl rand -hex 8
+```
+
+При обновлении существующей установки можно сразу запускать новый `install.sh`: отсутствующие `REALITY_*` будут добавлены автоматически. Если контейнер ноды называется не `remnanode`, задайте `XRAY_KEYGEN_CONTAINER`.
 
 ## 2. Nginx и origin TLS
 
@@ -52,10 +62,10 @@ include /etc/nginx/stream-map.d/*.map;
 
 ## 4. Config Profile
 
-Добавьте объект `build/<DOMAIN>/xray-inbound.json`, назначьте профиль ноде и проверьте:
+Добавьте оба объекта из `build/<DOMAIN>/xray-inbounds.json` в массив `inbounds`, назначьте профиль ноде и проверьте:
 
 ```bash
-ss -lntp | grep ':40112'
+ss -lntp | grep -E ':40112|:2443'
 ```
 
 ## 5. Host
@@ -69,11 +79,17 @@ ss -lntp | grep ':40112'
 ## 6. Internal Squad
 
 1. Создайте `TurboFlare-Lab`.
-2. Выберите только `xHTTP-TurboFlare`.
+2. Выберите `xHTTP-TurboFlare` и `xHTTP-Yandexcloud` либо разделите их по разным Squad.
 3. Добавьте одну тестовую запись.
 4. Расширяйте состав после проверки.
 
-## 7. Проверка
+## 7. Direct Reality Host
+
+Создайте второй Host по значениям из `build/<DOMAIN>/remnawave-reality-host-values.md`. Клиентский порт — `443`, хотя Reality inbound слушает только локальный `127.0.0.1:2443`. Порт `2443` в firewall не открывайте.
+
+Машиночитаемые клиентские параметры находятся в `build/<DOMAIN>/reality-client-credentials.json`; UUID пользователя выдаёт Remnawave отдельно.
+
+## 8. Проверка
 
 ```bash
 set -a

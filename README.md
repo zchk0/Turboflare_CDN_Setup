@@ -1,6 +1,6 @@
-# TurboFlare CDN + Nginx + XHTTP: учебный стенд
+# TurboFlare CDN + Direct Reality на одном порту 443
 
-Пошаговая инструкция по сборке лабораторного стенда с TurboFlare CDN, Nginx, Remnawave Node и Xray XHTTP `packet-up`.
+Пошаговая инструкция по сборке лабораторного стенда с двумя Xray inbound на одном внешнем порту `443`: TurboFlare CDN XHTTP `packet-up` и прямой VLESS XHTTP Reality.
 
 > [!IMPORTANT]
 > Материал предназначен только для обучения, тестирования и администрирования собственной либо явно авторизованной инфраструктуры. Соблюдайте применимое законодательство, условия TurboFlare и правила других задействованных сервисов.
@@ -25,11 +25,12 @@
 
 ```mermaid
 flowchart TD
-    A["Тестовый клиент: TLS + XHTTP"] --> B["TurboFlare edge"]
-    B --> C["Origin :443"]
-    C --> D["Nginx stream / SNI"]
-    D --> E["Nginx HTTPS :8443"]
-    E --> F["Xray XHTTP :40112"]
+    A["TurboFlare-клиент :443"] --> B["TurboFlare edge"]
+    B --> C["Origin Nginx stream :443"]
+    R["Reality-клиент :443"] --> C
+    C -->|SNI = DOMAIN| D["Nginx HTTPS :8443"]
+    D --> E["TurboFlare XHTTP :40112"]
+    C -->|SNI = REALITY_SERVER_NAMES| F["Direct Reality XHTTP :2443"]
 ```
 
 | Уровень | Назначение |
@@ -37,7 +38,7 @@ flowchart TD
 | TurboFlare | публичный TLS, DNS и доставка запросов до origin |
 | Nginx stream | выбор локального backend по SNI |
 | Nginx HTTPS | TLS для соединения CDN → origin, заглушка и proxy на XHTTP |
-| Xray inbound | серверная обработка `packet-up` |
+| Xray inbound | TurboFlare `packet-up` на `40112` и Direct Reality на `2443` |
 | Remnawave Host Extra | клиентские XMUX, размер POST и интервал отправки |
 
 ## Быстрый запуск
@@ -65,8 +66,12 @@ include /etc/nginx/stream-map.d/*.map;
 
 ```text
 build/<DOMAIN>/xray-inbound.json
+build/<DOMAIN>/xray-reality-inbound.json
+build/<DOMAIN>/xray-inbounds.json
 build/<DOMAIN>/remnawave-xhttp-extra.json
 build/<DOMAIN>/remnawave-host-values.md
+build/<DOMAIN>/remnawave-reality-host-values.md
+build/<DOMAIN>/reality-client-credentials.json
 ```
 
 Краткая последовательность приведена в [QUICKSTART.md](QUICKSTART.md).
@@ -100,9 +105,49 @@ XRAY_LISTEN_IP=127.0.0.1
 XRAY_XHTTP_PORT=40112
 XRAY_INBOUND_TAG=xHTTP-TurboFlare
 XHTTP_PATH=/static/getFile/video/segment.ts
+
+REALITY_LISTEN_IP=127.0.0.1
+REALITY_PORT=2443
+REALITY_INBOUND_TAG=xHTTP-Yandexcloud
+REALITY_XHTTP_PATH=/replace-with-a-random-path
+REALITY_TARGET=functions.yandexcloud.net:443
+REALITY_SERVER_NAMES=functions.yandexcloud.net,api-maps.yandex.ru,mediafeeds.yandex.ru
+REALITY_PRIVATE_KEY=REPLACE_WITH_X25519_PRIVATE_KEY
+REALITY_PASSWORD=REPLACE_WITH_X25519_PASSWORD
+REALITY_SHORT_IDS=REPLACE_WITH_HEX_SHORT_ID
 ```
 
 `cdn.example.com` и `203.0.113.10` являются только примерами. Файл `.env` исключён через `.gitignore`.
+
+При первом `sudo bash install.sh` установщик автоматически:
+
+- генерирует пару `PrivateKey` + `Password (PublicKey)` командой `xray x25519`;
+- создаёт один short ID из 16 шестнадцатеричных символов через `openssl rand -hex 8`;
+- заменяет демонстрационный Reality path случайным значением;
+- записывает значения в `.env` и устанавливает ему права `600`.
+
+При повторном запуске существующие ключи, path и short IDs сохраняются. Это важно: их неожиданная замена отключила бы уже выданные клиентские профили.
+
+Установщик сначала ищет `xray` на хосте, затем в контейнере `remnanode`. Если контейнер называется иначе, задайте в `.env`:
+
+```dotenv
+XRAY_KEYGEN_CONTAINER=имя-контейнера
+```
+
+Для ручной генерации без `install.sh` используйте:
+
+```bash
+xray x25519
+openssl rand -hex 8
+```
+
+В старых версиях Xray и некоторых интерфейсах Remnawave поле Password называется Public key. Все эти значения нельзя публиковать или добавлять в Git.
+
+Проверьте выбранный Reality target и допустимые SNI непосредственно с origin-сервера:
+
+```bash
+xray tls ping functions.yandexcloud.net
+```
 
 Для генерации без установки:
 
@@ -222,8 +267,13 @@ server {
 Установщик создаст map-запись:
 
 ```nginx
-cdn.example.com 127.0.0.1:8443;
+cdn.example.com             127.0.0.1:8443; # TurboFlare CDN
+functions.yandexcloud.net   127.0.0.1:2443; # Direct Reality
+api-maps.yandex.ru          127.0.0.1:2443; # Direct Reality
+mediafeeds.yandex.ru        127.0.0.1:2443; # Direct Reality
 ```
+
+Только Nginx слушает публичный `443`. Оба Host используют порт `443` со стороны клиента, а Xray inbound слушают разные внутренние порты. Порт `2443` не открывайте в UFW.
 
 Полный пример: [examples/nginx-stream-block.conf](examples/nginx-stream-block.conf).
 
@@ -241,20 +291,29 @@ cdn.example.com 127.0.0.1:8443;
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
-ss -lntp | grep -E ':443|:8443|:40112'
+ss -lntp | grep -E ':443|:8443|:40112|:2443'
 ```
 
 ## Xray Config Profile
 
-Выберите Xray-core `26.7.28` и добавьте в Config Profile объект из:
+Выберите Xray-core `26.7.28`. Готовый массив из двух объектов находится в:
 
 ```text
-build/<DOMAIN>/xray-inbound.json
+build/<DOMAIN>/xray-inbounds.json
 ```
+
+Добавьте оба объекта в массив `inbounds` Config Profile. Они также доступны отдельно:
+
+```text
+build/<DOMAIN>/xray-inbound.json          # TurboFlare
+build/<DOMAIN>/xray-reality-inbound.json  # Direct Reality
+```
+
+Установщик не изменяет Config Profile через API Remnawave: он автоматически устанавливает Nginx/SNI map и генерирует готовые объекты, после чего оба объекта нужно добавить в профиль панели.
 
 ![Демонстрационный Config Profile](docs/images/remnawave-profile.svg)
 
-Полный шаблон: [templates/xray-inbound.json.template](templates/xray-inbound.json.template).
+Полные шаблоны: [templates/xray-inbound.json.template](templates/xray-inbound.json.template) и [templates/xray-reality-inbound.json.template](templates/xray-reality-inbound.json.template).
 
 Критичные серверные параметры:
 
@@ -306,8 +365,18 @@ ss -lntp | grep ':40112'
 
 cd /opt/remnanode
 docker compose logs --since=15m remnanode \
-  | grep -aEi 'xHTTP-TurboFlare|40112|error|failed'
+  | grep -aEi 'xHTTP-TurboFlare|xHTTP-Yandexcloud|40112|2443|error|failed'
 ```
+
+Reality inbound принимает PROXY protocol, который общий Nginx stream отправляет на backend:
+
+```json
+"sockopt": {
+  "acceptProxyProtocol": true
+}
+```
+
+Если удалить этот параметр при включённом `proxy_protocol on`, Reality-соединения будут закрываться сразу после подключения.
 
 ![Демонстрационное назначение профиля](docs/images/remnawave-node.svg)
 
@@ -315,7 +384,7 @@ docker compose logs --since=15m remnanode \
 
 1. Создайте `TurboFlare-Lab`.
 2. Выберите Config Profile с новым inbound.
-3. Отметьте только `xHTTP-TurboFlare`.
+3. Отметьте `xHTTP-TurboFlare` и `xHTTP-Yandexcloud` либо создайте для них отдельные Internal Squad.
 4. Добавьте одну тестовую запись.
 5. Расширяйте выбор только после завершения проверки.
 
@@ -376,6 +445,28 @@ docker compose logs --since=15m remnanode \
   "scMinPostsIntervalMs": "30-50"
 }
 ```
+
+### Direct Reality Host
+
+Готовые значения находятся в `build/<DOMAIN>/remnawave-reality-host-values.md`.
+
+Те же клиентские параметры в JSON находятся в `build/<DOMAIN>/reality-client-credentials.json`. Это не полный клиентский профиль: UUID пользователя по-прежнему создаёт и подставляет Remnawave.
+
+| Поле | Значение |
+|---|---|
+| Inbound | `REALITY_INBOUND_TAG` |
+| Address | `ORIGIN_IP` или отдельная прямая DNS-запись на origin |
+| Port | `443` |
+| SNI | одно из `REALITY_SERVER_NAMES` |
+| Network | `xhttp` |
+| Security Layer | `Reality` |
+| Path | `REALITY_XHTTP_PATH` |
+| Password / Public key в старом UI | `REALITY_PASSWORD` |
+| Short ID | одно из `REALITY_SHORT_IDS` |
+
+Не указывайте здесь домен, который резолвится в TurboFlare edge: Direct Reality Host должен подключаться непосредственно к origin.
+
+Один short ID достаточен для любого количества клиентов. Дополнительные значения удобны только для раздельной выдачи и постепенной ротации; они не увеличивают скорость или стабильность соединения. Удаляйте старое значение лишь после обновления использующих его клиентов.
 
 ## Почему inbound и Host Extra различаются
 
@@ -447,13 +538,15 @@ curl -4vk -X POST \
 | Direct origin работает, CDN нет | origin IP/port, HTTPS и делегирование |
 | Endpoint отдаёт заглушку | одинаковый `XHTTP_PATH` в трёх местах |
 | TLS error | Address, SNI и Host равны `DOMAIN`; insecure выключен |
+| Reality не подключается | SNI map, listener `127.0.0.1:2443`, Password/Public key, short ID и PROXY protocol |
 | Сессия создаётся без передачи данных | routing и существующий outbound tag |
 | GET-вариант не работает | вернуть POST/query baseline из шаблонов |
 
 ## Безопасность
 
 - Не коммитьте `.env`.
-- Не открывайте `40112` наружу: Xray слушает только `127.0.0.1`.
+- Не открывайте `40112` и `2443` наружу: Xray слушает только loopback-адреса.
+- Не публикуйте Reality Private key, Password/Public key и short IDs.
 - Храните `origin.key` с правами `600`.
 - Не публикуйте origin IP, идентификатор сайта, рабочие DNS-записи, пользователей и названия нод.
 - Не включайте `Allow insecure` в Host.
@@ -468,4 +561,6 @@ curl -4vk -X POST \
 - [Xray-core 26.7.28: XHTTP config](https://github.com/XTLS/Xray-core/blob/v26.7.28/transport/internet/splithttp/config.go)
 - [Xray-core 26.7.28: XMUX](https://github.com/XTLS/Xray-core/blob/v26.7.28/transport/internet/splithttp/mux.go)
 - [Xray-core 26.7.28: packet-up client](https://github.com/XTLS/Xray-core/blob/v26.7.28/transport/internet/splithttp/dialer.go)
+- [Xray: REALITY](https://xtls.github.io/en/config/transports/reality.html)
+- [Xray: acceptProxyProtocol](https://xtls.github.io/en/config/transports/sockopt.html#acceptproxyprotocol-true-false)
 - [Исходное руководство TurboFlare](https://github.com/Artem-fix/Turboflare_CDN_Setup_Guide)

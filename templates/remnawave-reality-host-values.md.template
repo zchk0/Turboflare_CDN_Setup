@@ -1,0 +1,23 @@
+# Remnawave Host values: Direct Reality
+
+| Field | Value |
+|---|---|
+| Remark | `Direct Reality` |
+| Address | `${ORIGIN_IP}` or a direct DNS record pointing to it |
+| Port | `443` |
+| Config Profile | `${CONFIG_PROFILE_NAME}` |
+| Inbound | `${REALITY_INBOUND_TAG}` |
+| Network | `xhttp` |
+| Security Layer | `Reality` |
+| SNI | `${REALITY_PRIMARY_SERVER_NAME}` |
+| Host | empty |
+| Path | `${REALITY_XHTTP_PATH}` |
+| Mode | `auto` |
+| Fingerprint | `chrome` |
+| Password / Public key (legacy UI) | `${REALITY_PASSWORD}` |
+| Short ID | `${REALITY_PRIMARY_SHORT_ID}` |
+| Allow insecure | `OFF` |
+
+The public address must reach the origin directly. Do not use the TurboFlare edge
+address for this Host. Although the client uses port 443, Xray listens only on
+`${REALITY_LISTEN_IP}:${REALITY_PORT}` behind the Nginx SNI router.

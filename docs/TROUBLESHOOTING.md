@@ -9,7 +9,7 @@ set +a
 
 dig +short NS "$DOMAIN"
 dig +short A "$DOMAIN"
-ss -lntp | grep -E ':443|:8443|:40112'
+ss -lntp | grep -E ':443|:8443|:40112|:2443'
 sudo nginx -t
 
 curl -4vk --resolve "$DOMAIN:443:$ORIGIN_IP" "https://$DOMAIN/"
@@ -20,7 +20,7 @@ tail -n 50 "/var/log/nginx/$DOMAIN.error.log"
 
 cd /opt/remnanode
 docker compose logs --since=15m remnanode \
-  | grep -aEi 'xHTTP-TurboFlare|40112|error|failed'
+  | grep -aEi 'xHTTP-TurboFlare|xHTTP-Yandexcloud|40112|2443|error|failed'
 ```
 
 ## `502 Bad Gateway`
@@ -105,12 +105,31 @@ openssl s_client -connect "$DOMAIN:443" -servername "$DOMAIN" </dev/null 2>/dev/
   | openssl x509 -noout -subject -issuer -dates
 ```
 
+## Direct Reality не подключается
+
+Проверьте четыре уровня по очереди:
+
+```bash
+grep -F -- "${REALITY_SERVER_NAMES%%,*}" "/etc/nginx/stream-map.d/$STREAM_MAP_FILE"
+ss -lntp | grep ":$REALITY_PORT"
+sudo nginx -t
+xray tls ping "${REALITY_TARGET%:*}"
+```
+
+- внешний Address ведёт прямо на `ORIGIN_IP`, а не на TurboFlare edge;
+- клиент использует порт `443` и одно из значений `REALITY_SERVER_NAMES` как SNI;
+- Password/Public key и short ID совпадают со значениями `.env`;
+- Reality inbound содержит `acceptProxyProtocol: true`;
+- глобальный stream server содержит `ssl_preread on` и `proxy_protocol on`.
+
+Порт `2443` не нужно открывать в firewall: соединение к нему создаёт локальный Nginx.
+
 ## Соединение создаётся без передачи данных
 
 Если routing rules перечисляют `inboundTag`, добавьте:
 
 ```json
-"inboundTag": ["xHTTP-TurboFlare"]
+"inboundTag": ["xHTTP-TurboFlare", "xHTTP-Yandexcloud"]
 ```
 
 Убедитесь, что выбранный `outboundTag` существует на этой ноде.
@@ -138,8 +157,12 @@ Inbound xHTTP-TurboFlare not found in inboundsHashMap, creating new one
 
 ```bash
 jq empty "build/$DOMAIN/xray-inbound.json"
+jq empty "build/$DOMAIN/xray-reality-inbound.json"
+jq 'length == 2' -e "build/$DOMAIN/xray-inbounds.json"
 jq empty "build/$DOMAIN/remnawave-xhttp-extra.json"
+jq empty "build/$DOMAIN/reality-client-credentials.json"
 
 grep -RFn -- "$XHTTP_PATH" "build/$DOMAIN"
 grep -RFn -- "$XRAY_XHTTP_PORT" "build/$DOMAIN"
+grep -RFn -- "$REALITY_PORT" "build/$DOMAIN"
 ```
