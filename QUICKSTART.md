@@ -76,6 +76,19 @@ BEELINE_XHTTP_PATH=/api/uploadFile/
 Beeline использует отдельный `packet-up + GET` inbound. Подробная настройка CDN,
 DNS и сертификатов: [docs/BEELINE.md](docs/BEELINE.md).
 
+Режим origin-сертификата выбирается в `.env`:
+
+```dotenv
+BEELINE_ORIGIN_CERT_MODE=selfsigned   # или letsencrypt / existing
+```
+
+Для `letsencrypt` дополнительно задайте email и подтвердите условия ACME:
+
+```dotenv
+BEELINE_ACME_EMAIL=admin@example.com
+BEELINE_ACME_AGREE_TOS=true
+```
+
 ## 5. Reality
 
 Если включён `reality`, первый запуск автоматически сгенерирует ключевую пару,

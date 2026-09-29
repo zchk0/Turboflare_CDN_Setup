@@ -15,8 +15,9 @@
 | HTTPS to origin | enabled |
 | Origin SNI | `${BEELINE_ORIGIN_DOMAIN}` |
 | Origin hostname | `${BEELINE_ORIGIN_DOMAIN}` |
+| Origin certificate mode | `${BEELINE_ORIGIN_CERT_MODE}` |
 | Pass original Host | disabled |
-| Verify origin certificate | disabled for self-signed bootstrap; enable with a trusted certificate |
+| Verify origin certificate | disabled for `selfsigned`; enable for `letsencrypt` or a trusted `existing` certificate |
 
 ## CDN behavior
 

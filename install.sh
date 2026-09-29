@@ -122,6 +122,14 @@ component_enabled() {
   [[ -n "${ENABLED_COMPONENTS[$1]:-}" ]]
 }
 
+if component_enabled beeline \
+  && [[ "${BEELINE_ORIGIN_CERT_MODE:-}" == "letsencrypt" ]] \
+  && ! command -v certbot >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y certbot
+fi
+
 if component_enabled reality; then
   bash "${SCRIPT_DIR}/scripts/ensure-reality-credentials.sh" "${ENV_FILE}"
 fi
@@ -150,7 +158,8 @@ backup_and_install() {
   local destination_file="$2"
   local mode="$3"
 
-  if [[ -e "${destination_file}" || -L "${destination_file}" ]]; then
+  if [[ ( -e "${destination_file}" || -L "${destination_file}" ) \
+    && ! -e "${destination_file}.bak-${TIMESTAMP}" ]]; then
     cp -a -- "${destination_file}" "${destination_file}.bak-${TIMESTAMP}"
   fi
   install -m "${mode}" "${source_file}" "${destination_file}"
@@ -161,6 +170,8 @@ enable_site() {
   local enabled="$2"
 
   if [[ -L "${enabled}" ]]; then
+    [[ "$(readlink -f -- "${enabled}")" == "$(readlink -f -- "${available}")" ]] \
+      || die "${enabled} points to another file; refusing to replace the symlink"
     return
   fi
   [[ ! -e "${enabled}" ]] || die "${enabled} exists and is not a symlink; refusing to overwrite it"
@@ -219,6 +230,61 @@ install_self_signed_certificate() {
   chmod 644 "${ssl_dir}/origin.crt"
 }
 
+install_letsencrypt_certificate() {
+  local domain="$1"
+  local build_dir="$2"
+  local site_available="$3"
+  local site_enabled="$4"
+  local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
+  local key_path="/etc/letsencrypt/live/${domain}/privkey.pem"
+  local backup_path="${site_available}.bak-${TIMESTAMP}"
+  local bootstrap_required=false
+  local hook_path="/etc/letsencrypt/renewal-hooks/deploy/reload-nginx"
+
+  if [[ ! -s "${cert_path}" || ! -s "${key_path}" ]]; then
+    dig +short A "${domain}" | grep -Fxq "${ORIGIN_IP}" \
+      || die "${domain} must have an A record pointing to ORIGIN_IP (${ORIGIN_IP}) before requesting Let's Encrypt"
+
+    if [[ ! -f "${site_available}" ]] \
+      || ! grep -Fq 'location ^~ /.well-known/acme-challenge/' "${site_available}" \
+      || ! grep -Fq "root ${BEELINE_ACME_ROOT};" "${site_available}"; then
+      bootstrap_required=true
+      backup_and_install "${build_dir}/nginx-acme-bootstrap.conf" "${site_available}" 644
+    fi
+
+    enable_site "${site_available}" "${site_enabled}"
+    nginx -t
+    systemctl reload nginx
+
+    if ! certbot certonly \
+      --non-interactive \
+      --agree-tos \
+      --email "${BEELINE_ACME_EMAIL}" \
+      --cert-name "${domain}" \
+      --webroot \
+      --webroot-path "${BEELINE_ACME_ROOT}" \
+      --domain "${domain}"; then
+      if [[ "${bootstrap_required}" == true && -f "${backup_path}" ]]; then
+        cp -a -- "${backup_path}" "${site_available}"
+        nginx -t && systemctl reload nginx
+      fi
+      die "Let's Encrypt certificate request failed; existing non-bootstrap Nginx configuration was restored when available"
+    fi
+  fi
+
+  [[ -s "${cert_path}" ]] || die "Let's Encrypt certificate not found after issuance: ${cert_path}"
+  [[ -s "${key_path}" ]] || die "Let's Encrypt private key not found after issuance: ${key_path}"
+
+  install -d -m 755 "$(dirname -- "${hook_path}")"
+  cat > "${hook_path}" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+nginx -t
+systemctl reload nginx
+EOF
+  chmod 755 "${hook_path}"
+}
+
 install -d -m 755 "${STREAM_MAP_DIR}"
 
 if component_enabled turboflare; then
@@ -239,15 +305,23 @@ if component_enabled beeline; then
   BEELINE_SITE_AVAILABLE="/etc/nginx/sites-available/${BEELINE_ORIGIN_DOMAIN}.conf"
   BEELINE_SITE_ENABLED="/etc/nginx/sites-enabled/${BEELINE_ORIGIN_DOMAIN}.conf"
 
-  if [[ "${BEELINE_ORIGIN_CERT_MODE}" == "selfsigned" ]]; then
-    install_self_signed_certificate "${BEELINE_ORIGIN_DOMAIN}" "${BEELINE_ORIGIN_CERT_DAYS}" false
-  else
-    [[ -s "${BEELINE_ORIGIN_CERT}" ]] || die "Beeline origin certificate not found: ${BEELINE_ORIGIN_CERT}"
-    [[ -s "${BEELINE_ORIGIN_KEY}" ]] || die "Beeline origin private key not found: ${BEELINE_ORIGIN_KEY}"
-  fi
-
   install_cover "${BEELINE_COVER_ROOT}" "${BEELINE_COVER_TITLE}"
   install -d -m 755 "${BEELINE_ACME_ROOT}/.well-known/acme-challenge"
+
+  case "${BEELINE_ORIGIN_CERT_MODE}" in
+    selfsigned)
+      install_self_signed_certificate "${BEELINE_ORIGIN_DOMAIN}" "${BEELINE_ORIGIN_CERT_DAYS}" false
+      ;;
+    letsencrypt)
+      install_letsencrypt_certificate "${BEELINE_ORIGIN_DOMAIN}" "${BEELINE_BUILD_DIR}" \
+        "${BEELINE_SITE_AVAILABLE}" "${BEELINE_SITE_ENABLED}"
+      ;;
+    existing)
+      [[ -s "${BEELINE_ORIGIN_CERT}" ]] || die "Beeline origin certificate not found: ${BEELINE_ORIGIN_CERT}"
+      [[ -s "${BEELINE_ORIGIN_KEY}" ]] || die "Beeline origin private key not found: ${BEELINE_ORIGIN_KEY}"
+      ;;
+  esac
+
   backup_and_install "${BEELINE_BUILD_DIR}/nginx-site.conf" "${BEELINE_SITE_AVAILABLE}" 644
   enable_site "${BEELINE_SITE_AVAILABLE}" "${BEELINE_SITE_ENABLED}"
   backup_and_install "${BEELINE_BUILD_DIR}/nginx-stream-map-entry.map" \
@@ -293,6 +367,8 @@ if component_enabled beeline; then
     "${BEELINE_ORIGIN_DOMAIN}" "${ORIGIN_IP}" "${BEELINE_ORIGIN_DOMAIN}" "${BEELINE_XHTTP_PATH}"
   if [[ "${BEELINE_ORIGIN_CERT_MODE}" == "selfsigned" ]]; then
     printf 'Origin TLS is self-signed. Keep Beeline origin verification disabled until a trusted certificate is configured.\n'
+  elif [[ "${BEELINE_ORIGIN_CERT_MODE}" == "letsencrypt" ]]; then
+    printf "Origin TLS uses an automatically managed Let's Encrypt certificate. Origin verification may be enabled in Beeline.\n"
   fi
 fi
 

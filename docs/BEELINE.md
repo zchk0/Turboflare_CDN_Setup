@@ -46,7 +46,7 @@ BEELINE_CDN_CUSTOM_DOMAIN  CNAME  BEELINE_CDN_SYSTEM_DOMAIN
 
 ## Origin TLS
 
-Для первого запуска можно использовать:
+Доступны три режима. Для первого запуска можно использовать:
 
 ```dotenv
 BEELINE_ORIGIN_CERT_MODE=selfsigned
@@ -55,17 +55,20 @@ BEELINE_ORIGIN_CERT_MODE=selfsigned
 В этом режиме проверка сертификата источника в Beeline должна быть выключена.
 Установщик создаст сертификат для `BEELINE_ORIGIN_DOMAIN`.
 
-Для доверенного сертификата сначала установите конфигурацию с self-signed,
-выпустите сертификат через подготовленный webroot:
+Для автоматического выпуска доверенного сертификата через Certbot:
 
-```bash
-sudo apt install certbot
-sudo certbot certonly --webroot \
-  -w /var/www/beeline-acme \
-  -d "$BEELINE_ORIGIN_DOMAIN"
+```dotenv
+BEELINE_ORIGIN_CERT_MODE=letsencrypt
+BEELINE_ACME_EMAIL=admin@example.com
+BEELINE_ACME_AGREE_TOS=true
 ```
 
-Затем измените `.env`:
+Перед запуском A-запись origin-домена должна указывать на `ORIGIN_IP`, а входящий
+TCP/80 должен быть доступен из интернета. Установщик поставит Certbot, подготовит
+HTTP-01 webroot, выпустит сертификат, подключит его к Nginx и создаст deploy-hook
+для reload после продления.
+
+Чтобы использовать уже существующий доверенный сертификат:
 
 ```dotenv
 BEELINE_ORIGIN_CERT_MODE=existing
@@ -73,7 +76,8 @@ BEELINE_ORIGIN_CERT=/etc/letsencrypt/live/origin-node.example.net/fullchain.pem
 BEELINE_ORIGIN_KEY=/etc/letsencrypt/live/origin-node.example.net/privkey.pem
 ```
 
-Повторите установку и включите проверку сертификата источника в Beeline.
+В режимах `letsencrypt` и `existing` проверку сертификата источника в Beeline
+можно включить после успешной установки.
 
 ## Установка
 

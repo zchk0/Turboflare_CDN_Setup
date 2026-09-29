@@ -1,0 +1,14 @@
+server {
+    listen 80;
+    server_name ${BEELINE_ORIGIN_DOMAIN};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${BEELINE_ACME_ROOT};
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 404;
+    }
+}

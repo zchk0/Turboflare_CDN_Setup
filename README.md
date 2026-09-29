@@ -351,6 +351,11 @@ build/reality/xray-inbound.json
 
 Установщик не изменяет Config Profile через API Remnawave: он устанавливает Nginx/SNI map и генерирует готовые объекты, которые нужно добавить в профиль панели.
 
+Для Beeline режим origin-сертификата выбирается через
+`BEELINE_ORIGIN_CERT_MODE`: `selfsigned`, автоматически управляемый
+`letsencrypt` либо `existing` с явно заданными путями. Подробности и требования
+HTTP-01 приведены в [docs/BEELINE.md](docs/BEELINE.md).
+
 ![Демонстрационный Config Profile](docs/images/remnawave-profile.svg)
 
 Полные шаблоны: [templates/xray-inbound.json.template](templates/xray-inbound.json.template), [templates/xray-beeline-inbound.json.template](templates/xray-beeline-inbound.json.template) и [templates/xray-reality-inbound.json.template](templates/xray-reality-inbound.json.template).
