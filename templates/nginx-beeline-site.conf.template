@@ -1,6 +1,11 @@
 server {
     listen 80;
-    server_name ${DOMAIN};
+    server_name ${BEELINE_ORIGIN_DOMAIN};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${BEELINE_ACME_ROOT};
+        default_type text/plain;
+    }
 
     location / {
         return 301 https://$host$request_uri;
@@ -8,15 +13,15 @@ server {
 }
 
 server {
-    listen 127.0.0.1:${NGINX_INTERNAL_PORT} ssl proxy_protocol;
+    listen 127.0.0.1:${BEELINE_NGINX_INTERNAL_PORT} ssl proxy_protocol;
     http2 on;
 
-    server_name ${DOMAIN};
+    server_name ${BEELINE_ORIGIN_DOMAIN};
 
-    ssl_certificate     /etc/nginx/ssl/${DOMAIN}/origin.crt;
-    ssl_certificate_key /etc/nginx/ssl/${DOMAIN}/origin.key;
+    ssl_certificate     ${BEELINE_TLS_CERT_PATH};
+    ssl_certificate_key ${BEELINE_TLS_KEY_PATH};
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_session_cache shared:TURBOFLARE_SSL:10m;
+    ssl_session_cache shared:BEELINE_SSL:10m;
     ssl_session_timeout 1d;
     ssl_session_tickets off;
 
@@ -25,16 +30,16 @@ server {
     real_ip_header proxy_protocol;
     real_ip_recursive on;
 
-    access_log /var/log/nginx/${DOMAIN}.access.log;
-    error_log  /var/log/nginx/${DOMAIN}.error.log warn;
+    access_log /var/log/nginx/${BEELINE_ORIGIN_DOMAIN}.access.log;
+    error_log  /var/log/nginx/${BEELINE_ORIGIN_DOMAIN}.error.log warn;
 
-    location ^~ ${XHTTP_PATH} {
+    location ^~ ${BEELINE_XHTTP_PATH} {
         client_max_body_size 4m;
 
-        proxy_pass http://${XRAY_NGINX_BACKEND}:${XRAY_XHTTP_PORT};
+        proxy_pass http://${BEELINE_XRAY_NGINX_BACKEND}:${BEELINE_XRAY_XHTTP_PORT};
         proxy_http_version 1.1;
 
-        proxy_set_header Host ${DOMAIN};
+        proxy_set_header Host ${BEELINE_ORIGIN_DOMAIN};
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
@@ -64,25 +69,7 @@ server {
         return 204;
     }
 
-    location = /favicon.ico {
-        access_log off;
-        return 204;
-    }
-
-    # Optional neutral endpoints for the cover website.
-    location = /api/video/stream {
-        default_type application/json;
-        add_header Cache-Control "no-store" always;
-        return 200 '{"status":"ok","stream":{"state":"idle","bitrate":0,"viewers":0},"version":"1.0.0"}';
-    }
-
-    location = /PubSubService {
-        default_type application/json;
-        add_header Cache-Control "no-store" always;
-        return 200 '{"service":"PubSubService","status":"healthy","subscriptions":0,"version":"1.0.0"}';
-    }
-
-    root ${COVER_ROOT};
+    root ${BEELINE_COVER_ROOT};
     index index.html;
 
     location / {
@@ -93,4 +80,3 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 }
-

@@ -1,0 +1,40 @@
+# Beeline CDN settings
+
+## DNS
+
+- `${BEELINE_ORIGIN_DOMAIN}`: `A` -> `${ORIGIN_IP}`
+- Optional custom domain: `${BEELINE_CDN_CUSTOM_DOMAIN_DISPLAY}`
+- CNAME target when a custom domain is configured: `${BEELINE_CDN_SYSTEM_DOMAIN}`
+- Selected Remnawave Host domain: `${BEELINE_HOST_DOMAIN}`
+
+## Origin
+
+| Field | Value |
+|---|---|
+| Origin address | `${ORIGIN_IP}:${BEELINE_ORIGIN_PORT}` |
+| HTTPS to origin | enabled |
+| Origin SNI | `${BEELINE_ORIGIN_DOMAIN}` |
+| Origin hostname | `${BEELINE_ORIGIN_DOMAIN}` |
+| Pass original Host | disabled |
+| Verify origin certificate | disabled for self-signed bootstrap; enable with a trusted certificate |
+
+## CDN behavior
+
+- Do not cache `${BEELINE_XHTTP_PATH}`.
+- Disable secure token, AWS authorization, access restrictions, CORS checks,
+  compression/optimization and HTTP/3 for the first test.
+- The XHTTP uplink uses GET. A POST response of `405` is expected in the
+  provider behavior described by the source guide.
+
+## Checks
+
+```bash
+curl -4vk --resolve "${BEELINE_ORIGIN_DOMAIN}:443:${ORIGIN_IP}" \
+  "https://${BEELINE_ORIGIN_DOMAIN}${BEELINE_XHTTP_PATH}"
+
+curl -vk "https://${BEELINE_CDN_SYSTEM_DOMAIN}${BEELINE_XHTTP_PATH}"
+curl -v "https://${BEELINE_HOST_DOMAIN}${BEELINE_XHTTP_PATH}"
+```
+
+An HTTP `400` response from the XHTTP endpoint confirms routing to Xray; it is
+not a complete protocol session test.

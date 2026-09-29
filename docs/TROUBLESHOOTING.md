@@ -110,7 +110,7 @@ openssl s_client -connect "$DOMAIN:443" -servername "$DOMAIN" </dev/null 2>/dev/
 Проверьте четыре уровня по очереди:
 
 ```bash
-grep -F -- "${REALITY_SERVER_NAMES%%,*}" "/etc/nginx/stream-map.d/$STREAM_MAP_FILE"
+grep -F -- "${REALITY_SERVER_NAMES%%,*}" "/etc/nginx/stream-map.d/$REALITY_STREAM_MAP_FILE"
 ss -lntp | grep ":$REALITY_PORT"
 sudo nginx -t
 xray tls ping "${REALITY_TARGET%:*}"
@@ -129,7 +129,7 @@ xray tls ping "${REALITY_TARGET%:*}"
 Если routing rules перечисляют `inboundTag`, добавьте:
 
 ```json
-"inboundTag": ["xHTTP-TurboFlare", "xHTTP-Yandexcloud"]
+"inboundTag": ["xHTTP-TurboFlare", "xHTTP-Beeline", "xHTTP-Yandexcloud"]
 ```
 
 Убедитесь, что выбранный `outboundTag` существует на этой ноде.
@@ -156,13 +156,15 @@ Inbound xHTTP-TurboFlare not found in inboundsHashMap, creating new one
 ## Проверка сгенерированных файлов
 
 ```bash
-jq empty "build/$DOMAIN/xray-inbound.json"
-jq empty "build/$DOMAIN/xray-reality-inbound.json"
-jq 'length == 2' -e "build/$DOMAIN/xray-inbounds.json"
-jq empty "build/$DOMAIN/remnawave-xhttp-extra.json"
-jq empty "build/$DOMAIN/reality-client-credentials.json"
+jq empty "build/turboflare/$DOMAIN/xray-inbound.json"
+jq empty "build/beeline/$BEELINE_ORIGIN_DOMAIN/xray-inbound.json"
+jq empty "build/reality/xray-inbound.json"
+jq 'length >= 1' -e "build/shared/xray-inbounds.json"
+jq empty "build/turboflare/$DOMAIN/remnawave-xhttp-extra.json"
+jq empty "build/beeline/$BEELINE_ORIGIN_DOMAIN/remnawave-xhttp-extra.json"
+jq empty "build/reality/client-credentials.json"
 
-grep -RFn -- "$XHTTP_PATH" "build/$DOMAIN"
-grep -RFn -- "$XRAY_XHTTP_PORT" "build/$DOMAIN"
-grep -RFn -- "$REALITY_PORT" "build/$DOMAIN"
+grep -RFn -- "$XHTTP_PATH" "build/turboflare/$DOMAIN"
+grep -RFn -- "$BEELINE_XHTTP_PATH" "build/beeline/$BEELINE_ORIGIN_DOMAIN"
+grep -RFn -- "$REALITY_PORT" "build/reality"
 ```

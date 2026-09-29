@@ -1,0 +1,18 @@
+{
+  "xmux": {
+    "cMaxReuseTimes": 100,
+    "maxConcurrency": "16-32"
+  },
+  "seqKey": "chunk_id",
+  "seqPlacement": "query",
+  "sessionIDKey": "X-Upload-Token",
+  "sessionIDPlacement": "header",
+  "xPaddingBytes": "100-1000",
+  "xPaddingKey": "hash",
+  "xPaddingHeader": "X-Client-Version",
+  "xPaddingMethod": "tokenish",
+  "xPaddingObfsMode": true,
+  "xPaddingPlacement": "queryInHeader",
+  "uplinkHTTPMethod": "GET",
+  "noSSEHeader": false
+}

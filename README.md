@@ -1,9 +1,9 @@
-# TurboFlare CDN + Direct Reality на одном порту 443
+# TurboFlare + Beeline CDN + Direct Reality на одном порту 443
 
-Пошаговая инструкция по сборке лабораторного стенда с двумя Xray inbound на одном внешнем порту `443`: TurboFlare CDN XHTTP `packet-up` и прямой VLESS XHTTP Reality.
+Модульный установщик для независимого или совместного развёртывания TurboFlare CDN XHTTP, Beeline CDN XHTTP и прямого VLESS XHTTP Reality на одном внешнем порту `443`.
 
 > [!IMPORTANT]
-> Материал предназначен только для обучения, тестирования и администрирования собственной либо явно авторизованной инфраструктуры. Соблюдайте применимое законодательство, условия TurboFlare и правила других задействованных сервисов.
+> Материал предназначен только для обучения, тестирования и администрирования собственной либо явно авторизованной инфраструктуры. Соблюдайте применимое законодательство, условия TurboFlare, Beeline и правила других задействованных сервисов.
 
 В репозитории используются только демонстрационные значения:
 
@@ -18,7 +18,8 @@
 
 - Проверенная версия: **Xray-core 26.7.28** на ноде и в клиентском приложении.
 - Рабочая для TurboFlare схема: **POST + body + session/sequence в query**.
-- Варианты `GET + body` в этом стенде не используются: при практической проверке TurboFlare не передавал их до origin в требуемом виде.
+- Рабочая для Beeline схема из приложенного руководства: **GET + body**, session в header и sequence в query.
+- TurboFlare и Beeline используют отдельные inbound и Host Extra: менять метод одного общего профиля нельзя.
 - Nginx проксирует XHTTP endpoint без request/response buffering и без cache.
 
 ## Архитектура
@@ -27,19 +28,24 @@
 flowchart TD
     A["TurboFlare-клиент :443"] --> B["TurboFlare edge"]
     B --> C["Origin Nginx stream :443"]
+    BA["Beeline-клиент :443"] --> BB["Beeline edge"]
+    BB --> C
     R["Reality-клиент :443"] --> C
     C -->|SNI = DOMAIN| D["Nginx HTTPS :8443"]
     D --> E["TurboFlare XHTTP :40112"]
+    C -->|SNI = BEELINE_ORIGIN_DOMAIN| BD["Nginx HTTPS :8444"]
+    BD --> BE["Beeline XHTTP :4443"]
     C -->|SNI = REALITY_SERVER_NAMES| F["Direct Reality XHTTP :2443"]
 ```
 
 | Уровень | Назначение |
 |---|---|
 | TurboFlare | публичный TLS, DNS и доставка запросов до origin |
+| Beeline CDN | технический/custom CDN-домен и доставка GET upload-запросов до origin |
 | Nginx stream | выбор локального backend по SNI |
 | Nginx HTTPS | TLS для соединения CDN → origin, заглушка и proxy на XHTTP |
-| Xray inbound | TurboFlare `packet-up` на `40112` и Direct Reality на `2443` |
-| Remnawave Host Extra | клиентские XMUX, размер POST и интервал отправки |
+| Xray inbound | TurboFlare на `40112`, Beeline на `4443`, Direct Reality на `2443` |
+| Remnawave Host Extra | отдельные клиентские параметры для POST и GET провайдеров |
 
 ## Быстрый запуск
 
@@ -54,6 +60,22 @@ chmod +x install.sh scripts/render.sh
 sudo bash install.sh
 ```
 
+Компоненты задаются в `.env`:
+
+```dotenv
+DEPLOY_COMPONENTS=turboflare,beeline,reality
+```
+
+Или выбираются только для текущего запуска:
+
+```bash
+sudo bash install.sh --only turboflare
+sudo bash install.sh --only beeline
+sudo bash install.sh --only turboflare,beeline,reality
+```
+
+Отключённые в конкретном запуске компоненты не удаляются.
+
 Если установщик сообщает, что отсутствует stream include, добавьте внутрь существующего блока `map $ssl_preread_server_name $backend`:
 
 ```nginx
@@ -62,23 +84,20 @@ include /etc/nginx/stream-map.d/*.map;
 
 После этого снова запустите `sudo bash install.sh`.
 
-Установщик создаёт:
+Установщик создаёт общий массив inbound и раздельные каталоги компонентов:
 
 ```text
-build/<DOMAIN>/xray-inbound.json
-build/<DOMAIN>/xray-reality-inbound.json
-build/<DOMAIN>/xray-inbounds.json
-build/<DOMAIN>/remnawave-xhttp-extra.json
-build/<DOMAIN>/remnawave-host-values.md
-build/<DOMAIN>/remnawave-reality-host-values.md
-build/<DOMAIN>/reality-client-credentials.json
+build/shared/xray-inbounds.json
+build/turboflare/<DOMAIN>/
+build/beeline/<BEELINE_ORIGIN_DOMAIN>/
+build/reality/
 ```
 
-Краткая последовательность приведена в [QUICKSTART.md](QUICKSTART.md).
+Краткая последовательность приведена в [QUICKSTART.md](QUICKSTART.md), настройка Beeline — в [docs/BEELINE.md](docs/BEELINE.md).
 
 ## Требования
 
-- отдельная доменная зона, которую можно делегировать TurboFlare;
+- домены выбранных CDN-компонентов;
 - origin-сервер с публичным IPv4;
 - Debian или Ubuntu;
 - Nginx с модулем stream;
@@ -93,7 +112,13 @@ cp .env.example .env
 nano .env
 ```
 
-Минимально замените:
+Сначала выберите компоненты:
+
+```dotenv
+DEPLOY_COMPONENTS=turboflare,reality
+```
+
+Для TurboFlare минимально замените:
 
 ```dotenv
 DOMAIN=cdn.example.com
@@ -117,9 +142,21 @@ REALITY_PASSWORD=REPLACE_WITH_X25519_PASSWORD
 REALITY_SHORT_IDS=REPLACE_WITH_HEX_SHORT_ID
 ```
 
+Для Beeline заполните отдельную секцию:
+
+```dotenv
+BEELINE_ORIGIN_DOMAIN=origin-node.example.net
+BEELINE_CDN_SYSTEM_DOMAIN=abc123xyz.a.trbcdn.net
+BEELINE_CDN_CUSTOM_DOMAIN=cdn-node.example.net
+BEELINE_NGINX_INTERNAL_PORT=8444
+BEELINE_XRAY_XHTTP_PORT=4443
+BEELINE_XRAY_INBOUND_TAG=xHTTP-Beeline
+BEELINE_XHTTP_PATH=/api/uploadFile/
+```
+
 `cdn.example.com` и `203.0.113.10` являются только примерами. Файл `.env` исключён через `.gitignore`.
 
-При первом `sudo bash install.sh` установщик автоматически:
+Если компонент `reality` включён, при первом `sudo bash install.sh` установщик автоматически:
 
 - генерирует пару `PrivateKey` + `Password (PublicKey)` командой `xray x25519`;
 - создаёт один short ID из 16 шестнадцатеричных символов через `openssl rand -hex 8`;
@@ -149,10 +186,11 @@ openssl rand -hex 8
 xray tls ping functions.yandexcloud.net
 ```
 
-Для генерации без установки:
+Для генерации без установки или только для выбранных компонентов:
 
 ```bash
 ./scripts/render.sh
+./scripts/render.sh --only beeline
 ```
 
 ## Регистрация и настройка TurboFlare
@@ -264,16 +302,17 @@ server {
 }
 ```
 
-Установщик создаст map-запись:
+Установщик создаёт отдельный map-файл каждого включённого компонента. При совместной установке итоговые записи выглядят так:
 
 ```nginx
 cdn.example.com             127.0.0.1:8443; # TurboFlare CDN
+origin-node.example.net     127.0.0.1:8444; # Beeline CDN origin
 functions.yandexcloud.net   127.0.0.1:2443; # Direct Reality
 api-maps.yandex.ru          127.0.0.1:2443; # Direct Reality
 mediafeeds.yandex.ru        127.0.0.1:2443; # Direct Reality
 ```
 
-Только Nginx слушает публичный `443`. Оба Host используют порт `443` со стороны клиента, а Xray inbound слушают разные внутренние порты. Порт `2443` не открывайте в UFW.
+Только Nginx слушает публичный `443`. Все Host используют порт `443` со стороны клиента, а Xray inbound слушают разные внутренние порты. Порты `2443`, `4443`, `8443` и `8444` не открывайте в UFW.
 
 Полный пример: [examples/nginx-stream-block.conf](examples/nginx-stream-block.conf).
 
@@ -296,24 +335,25 @@ ss -lntp | grep -E ':443|:8443|:40112|:2443'
 
 ## Xray Config Profile
 
-Выберите Xray-core `26.7.28`. Готовый массив из двух объектов находится в:
+Выберите Xray-core `26.7.28`. Готовый массив включённых компонентов находится в:
 
 ```text
-build/<DOMAIN>/xray-inbounds.json
+build/shared/xray-inbounds.json
 ```
 
-Добавьте оба объекта в массив `inbounds` Config Profile. Они также доступны отдельно:
+Добавьте все объекты в массив `inbounds` Config Profile. Они также доступны отдельно:
 
 ```text
-build/<DOMAIN>/xray-inbound.json          # TurboFlare
-build/<DOMAIN>/xray-reality-inbound.json  # Direct Reality
+build/turboflare/<DOMAIN>/xray-inbound.json
+build/beeline/<BEELINE_ORIGIN_DOMAIN>/xray-inbound.json
+build/reality/xray-inbound.json
 ```
 
-Установщик не изменяет Config Profile через API Remnawave: он автоматически устанавливает Nginx/SNI map и генерирует готовые объекты, после чего оба объекта нужно добавить в профиль панели.
+Установщик не изменяет Config Profile через API Remnawave: он устанавливает Nginx/SNI map и генерирует готовые объекты, которые нужно добавить в профиль панели.
 
 ![Демонстрационный Config Profile](docs/images/remnawave-profile.svg)
 
-Полные шаблоны: [templates/xray-inbound.json.template](templates/xray-inbound.json.template) и [templates/xray-reality-inbound.json.template](templates/xray-reality-inbound.json.template).
+Полные шаблоны: [templates/xray-inbound.json.template](templates/xray-inbound.json.template), [templates/xray-beeline-inbound.json.template](templates/xray-beeline-inbound.json.template) и [templates/xray-reality-inbound.json.template](templates/xray-reality-inbound.json.template).
 
 Критичные серверные параметры:
 
@@ -420,7 +460,7 @@ Reality inbound принимает PROXY protocol, который общий Ngi
 
 ### Клиентский XHTTP Extra
 
-Вставьте содержимое `build/<DOMAIN>/remnawave-xhttp-extra.json`:
+Для TurboFlare вставьте содержимое `build/turboflare/<DOMAIN>/remnawave-xhttp-extra.json`:
 
 ```json
 {
@@ -448,9 +488,9 @@ Reality inbound принимает PROXY protocol, который общий Ngi
 
 ### Direct Reality Host
 
-Готовые значения находятся в `build/<DOMAIN>/remnawave-reality-host-values.md`.
+Готовые значения находятся в `build/reality/remnawave-host-values.md`.
 
-Те же клиентские параметры в JSON находятся в `build/<DOMAIN>/reality-client-credentials.json`. Это не полный клиентский профиль: UUID пользователя по-прежнему создаёт и подставляет Remnawave.
+Те же клиентские параметры в JSON находятся в `build/reality/client-credentials.json`. Это не полный клиентский профиль: UUID пользователя по-прежнему создаёт и подставляет Remnawave.
 
 | Поле | Значение |
 |---|---|

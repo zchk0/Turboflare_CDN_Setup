@@ -1,0 +1,55 @@
+{
+  "tag": "${BEELINE_XRAY_INBOUND_TAG}",
+  "port": ${BEELINE_XRAY_XHTTP_PORT},
+  "listen": "${BEELINE_XRAY_LISTEN_IP}",
+  "protocol": "vless",
+  "settings": {
+    "clients": [],
+    "decryption": "none"
+  },
+  "sniffing": {
+    "enabled": true,
+    "routeOnly": false,
+    "destOverride": [
+      "http",
+      "tls",
+      "quic",
+      "fakedns"
+    ],
+    "metadataOnly": false
+  },
+  "streamSettings": {
+    "network": "xhttp",
+    "security": "none",
+    "sockopt": {
+      "trustedXForwardedFor": [
+        "X-Real-IP",
+        "X-Forwarded-For"
+      ]
+    },
+    "xhttpSettings": {
+      "host": "${BEELINE_ORIGIN_DOMAIN}",
+      "mode": "packet-up",
+      "path": "${BEELINE_XHTTP_PATH}",
+      "extra": {
+        "xmux": {
+          "cMaxReuseTimes": 100,
+          "maxConcurrency": "16-32"
+        },
+        "seqKey": "chunk_id",
+        "seqPlacement": "query",
+        "sessionIDKey": "X-Upload-Token",
+        "sessionIDPlacement": "header",
+        "xPaddingBytes": "100-1000",
+        "xPaddingKey": "hash",
+        "xPaddingHeader": "X-Client-Version",
+        "xPaddingMethod": "tokenish",
+        "xPaddingObfsMode": true,
+        "xPaddingPlacement": "queryInHeader",
+        "uplinkHTTPMethod": "GET",
+        "noSSEHeader": false,
+        "serverMaxHeaderBytes": 32768
+      }
+    }
+  }
+}

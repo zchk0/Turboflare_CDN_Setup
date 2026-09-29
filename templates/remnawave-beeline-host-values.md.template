@@ -1,0 +1,23 @@
+# Remnawave Host values: Beeline CDN
+
+| Field | Value |
+|---|---|
+| Remark | Beeline CDN |
+| Address | `${BEELINE_HOST_DOMAIN}` |
+| Port | `443` |
+| Config Profile | `${CONFIG_PROFILE_NAME}` |
+| Inbound | `${BEELINE_XRAY_INBOUND_TAG}` |
+| Network | `xhttp` |
+| Security Layer | `TLS` |
+| SNI | `${BEELINE_HOST_DOMAIN}` |
+| Host | `${BEELINE_HOST_DOMAIN}` |
+| Path | `${BEELINE_XHTTP_PATH}` |
+| Mode | `packet-up` |
+| ALPN | `h2,http/1.1` |
+| Fingerprint | `chrome` |
+| Allow insecure | `OFF` |
+| Flow | empty |
+| Internal Squad | `${BEELINE_SQUAD_NAME}` |
+
+Use `remnawave-xhttp-extra.json` from the same build directory. The GET
+method and all placement/key fields must remain identical on client and server.

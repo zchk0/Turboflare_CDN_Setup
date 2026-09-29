@@ -1,8 +1,8 @@
-# Быстрый запуск лабораторного стенда
+# Быстрый запуск CDN-стека
 
-> Материал предназначен для обучения и работы с собственной либо авторизованной инфраструктурой.
+> Материал предназначен для обучения и работы с собственной либо явно авторизованной инфраструктурой.
 
-## 1. Переменные
+## 1. Выбор компонентов
 
 ```bash
 git clone https://github.com/indie-master/Turboflare_CDN_Setup_Guide.git
@@ -11,85 +11,130 @@ cp .env.example .env
 nano .env
 ```
 
-Замените демонстрационные значения:
+В `DEPLOY_COMPONENTS` можно указать любое сочетание:
+
+```dotenv
+DEPLOY_COMPONENTS=turboflare
+DEPLOY_COMPONENTS=beeline
+DEPLOY_COMPONENTS=turboflare,beeline
+DEPLOY_COMPONENTS=turboflare,beeline,reality
+```
+
+Командная строка `--only` временно переопределяет это значение и не удаляет
+конфигурации компонентов, не участвующих в текущем запуске:
+
+```bash
+sudo bash install.sh --only turboflare
+sudo bash install.sh --only beeline
+sudo bash install.sh --only turboflare,beeline,reality
+```
+
+## 2. Общие значения
+
+```dotenv
+ORIGIN_IP=203.0.113.10
+STREAM_MAP_DIR=/etc/nginx/stream-map.d
+CONFIG_PROFILE_NAME=LAB_PROFILE
+```
+
+Локальные порты компонентов должны различаться. Значения по умолчанию:
+
+```text
+TurboFlare: Nginx 8443, Xray 40112
+Beeline:    Nginx 8444, Xray 4443
+Reality:    Xray 2443
+```
+
+## 3. TurboFlare
+
+Для `turboflare` задайте как минимум:
 
 ```dotenv
 DOMAIN=cdn.example.com
-ORIGIN_IP=203.0.113.10
-```
-
-Проверьте локальные порты:
-
-```dotenv
 NGINX_INTERNAL_PORT=8443
 XRAY_XHTTP_PORT=40112
-REALITY_PORT=2443
+XRAY_INBOUND_TAG=xHTTP-TurboFlare
+XHTTP_PATH=/static/getFile/video/segment.ts
 ```
 
-При первом запуске `install.sh` сам заменит Reality-заглушки в `.env`: сгенерирует ключевую пару, один short ID и случайный path. Для ручной генерации используйте:
+TurboFlare использует `packet-up` и POST по умолчанию.
 
-```bash
-xray x25519
-openssl rand -hex 8
+## 4. Beeline
+
+Для `beeline` задайте:
+
+```dotenv
+BEELINE_ORIGIN_DOMAIN=origin-node.example.net
+BEELINE_CDN_SYSTEM_DOMAIN=abc123xyz.a.trbcdn.net
+BEELINE_CDN_CUSTOM_DOMAIN=cdn-node.example.net
+BEELINE_NGINX_INTERNAL_PORT=8444
+BEELINE_XRAY_XHTTP_PORT=4443
+BEELINE_XRAY_INBOUND_TAG=xHTTP-Beeline
+BEELINE_XHTTP_PATH=/api/uploadFile/
 ```
 
-При обновлении существующей установки можно сразу запускать новый `install.sh`: отсутствующие `REALITY_*` будут добавлены автоматически. Если контейнер ноды называется не `remnanode`, задайте `XRAY_KEYGEN_CONTAINER`.
+Beeline использует отдельный `packet-up + GET` inbound. Подробная настройка CDN,
+DNS и сертификатов: [docs/BEELINE.md](docs/BEELINE.md).
 
-## 2. Nginx и origin TLS
+## 5. Reality
+
+Если включён `reality`, первый запуск автоматически сгенерирует ключевую пару,
+short ID и случайный path. Если контейнер ноды называется не `remnanode`, укажите:
+
+```dotenv
+XRAY_KEYGEN_CONTAINER=имя-контейнера
+```
+
+## 6. Установка
 
 ```bash
 chmod +x install.sh scripts/render.sh
 sudo bash install.sh
 ```
 
-Если требуется stream include, добавьте внутрь существующего `map $ssl_preread_server_name $backend`:
+Если установщик сообщает об отсутствующем stream include, добавьте внутрь
+существующего `map $ssl_preread_server_name $backend`:
 
 ```nginx
 include /etc/nginx/stream-map.d/*.map;
 ```
 
-Повторите `sudo bash install.sh`.
+Не создавайте второй `stream {}` или второй публичный `listen 443`. После
+изменения повторите установку.
 
-## 3. TurboFlare
+## 7. Config Profile
 
-1. Добавьте `DOMAIN` как новый сайт.
-2. Делегируйте зону на NS из кабинета.
-3. Укажите origin `ORIGIN_IP:443`.
-4. Включите HTTPS к источнику.
-5. Выключите stale cache.
-6. Включите учёт query string и cookies.
-7. Дождитесь завершения делегирования.
+Добавьте объекты из общего файла в массив `inbounds` профиля Remnawave:
 
-## 4. Config Profile
-
-Добавьте оба объекта из `build/<DOMAIN>/xray-inbounds.json` в массив `inbounds`, назначьте профиль ноде и проверьте:
-
-```bash
-ss -lntp | grep -E ':40112|:2443'
+```text
+build/shared/xray-inbounds.json
 ```
 
-## 5. Host
+Провайдерские файлы находятся здесь:
 
-Поля Host находятся в `build/<DOMAIN>/remnawave-host-values.md`.
+```text
+build/turboflare/<DOMAIN>/
+build/beeline/<BEELINE_ORIGIN_DOMAIN>/
+build/reality/
+```
 
-В XHTTP Extra вставьте `build/<DOMAIN>/remnawave-xhttp-extra.json`.
+Назначьте Config Profile ноде и проверьте нужные локальные порты:
 
-Используйте `packet-up`, POST по умолчанию, ALPN `h2` и query-размещение session/sequence. GET-варианты для этого стенда не применяются.
+```bash
+ss -lntp | grep -E ':40112|:4443|:2443'
+```
 
-## 6. Internal Squad
+## 8. Remnawave Hosts
 
-1. Создайте `TurboFlare-Lab`.
-2. Выберите `xHTTP-TurboFlare` и `xHTTP-Yandexcloud` либо разделите их по разным Squad.
-3. Добавьте одну тестовую запись.
-4. Расширяйте состав после проверки.
+- TurboFlare: `build/turboflare/<DOMAIN>/remnawave-host-values.md`.
+- Beeline: `build/beeline/<BEELINE_ORIGIN_DOMAIN>/remnawave-host-values.md`.
+- Reality: `build/reality/remnawave-host-values.md`.
 
-## 7. Direct Reality Host
+Для каждого CDN используйте `remnawave-xhttp-extra.json` из того же каталога:
+TurboFlare и Beeline имеют несовместимые методы uplink и не должны использовать
+один Extra.
 
-Создайте второй Host по значениям из `build/<DOMAIN>/remnawave-reality-host-values.md`. Клиентский порт — `443`, хотя Reality inbound слушает только локальный `127.0.0.1:2443`. Порт `2443` в firewall не открывайте.
-
-Машиночитаемые клиентские параметры находятся в `build/<DOMAIN>/reality-client-credentials.json`; UUID пользователя выдаёт Remnawave отдельно.
-
-## 8. Проверка
+## 9. Проверка
 
 ```bash
 set -a
@@ -97,8 +142,8 @@ source .env
 set +a
 
 curl -4vk --resolve "$DOMAIN:443:$ORIGIN_IP" "https://$DOMAIN/"
-curl -4v "https://$DOMAIN/"
+curl -4vk --resolve "$BEELINE_ORIGIN_DOMAIN:443:$ORIGIN_IP" \
+  "https://$BEELINE_ORIGIN_DOMAIN$BEELINE_XHTTP_PATH"
 ```
 
-Подробности: [README.md](README.md). Мобильная диагностика: [docs/IOS-STABILITY.md](docs/IOS-STABILITY.md).
-
+Подробности по TurboFlare и общей архитектуре: [README.md](README.md).
