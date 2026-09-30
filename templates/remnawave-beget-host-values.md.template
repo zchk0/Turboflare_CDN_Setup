@@ -1,0 +1,23 @@
+# Remnawave Host values: Beget CDN
+
+| Field | Value |
+|---|---|
+| Remark | Beget CDN |
+| Address | `${BEGET_HOST_DOMAIN}` |
+| Port | `443` |
+| Config Profile | `${CONFIG_PROFILE_NAME}` |
+| Inbound | `${BEGET_XRAY_INBOUND_TAG}` |
+| Network | `xhttp` |
+| Security Layer | `TLS` |
+| SNI | `${BEGET_HOST_DOMAIN}` |
+| Host | `${BEGET_HOST_DOMAIN}` |
+| Path | `${BEGET_XHTTP_PATH}` |
+| Mode | `packet-up` |
+| ALPN | `h2,http/1.1` |
+| Fingerprint | `chrome` |
+| Allow insecure | `OFF` |
+| Flow | empty |
+| Internal Squad | `${BEGET_SQUAD_NAME}` |
+
+Use `remnawave-xhttp-extra.json` from the same build directory. Keep GET and
+the `_dc` / `X-Cache` padding fields identical on the client and server.

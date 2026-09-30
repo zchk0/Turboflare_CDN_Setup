@@ -1,0 +1,14 @@
+server {
+    listen 80;
+    server_name ${BEGET_ORIGIN_DOMAIN};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${BEGET_ACME_ROOT};
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 404;
+    }
+}

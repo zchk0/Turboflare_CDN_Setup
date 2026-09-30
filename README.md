@@ -1,9 +1,11 @@
-# TurboFlare + Beeline CDN + Direct Reality на одном порту 443
+# TurboFlare + Beeline + Beget CDN + Direct Reality на одном порту 443
 
-Модульный установщик для независимого или совместного развёртывания TurboFlare CDN XHTTP, Beeline CDN XHTTP и прямого VLESS XHTTP Reality на одном внешнем порту `443`.
+Модульный установщик для независимого или совместного развёртывания TurboFlare,
+Beeline и Beget CDN XHTTP, а также прямого VLESS XHTTP Reality на одном внешнем
+порту `443`.
 
 > [!IMPORTANT]
-> Материал предназначен только для обучения, тестирования и администрирования собственной либо явно авторизованной инфраструктуры. Соблюдайте применимое законодательство, условия TurboFlare, Beeline и правила других задействованных сервисов.
+> Материал предназначен только для обучения, тестирования и администрирования собственной либо явно авторизованной инфраструктуры. Соблюдайте применимое законодательство, условия TurboFlare, Beeline, Beget и правила других задействованных сервисов.
 
 В репозитории используются только демонстрационные значения:
 
@@ -19,7 +21,8 @@
 - Проверенная версия: **Xray-core 26.7.28** на ноде и в клиентском приложении.
 - Рабочая для TurboFlare схема: **POST + body + session/sequence в query**.
 - Рабочая для Beeline схема из приложенного руководства: **GET + body**, session в header и sequence в query.
-- TurboFlare и Beeline используют отдельные inbound и Host Extra: менять метод одного общего профиля нельзя.
+- Рабочая для Beget схема: **packet-up + GET**, padding `_dc` / `X-Cache`.
+- Каждый CDN использует собственные inbound и Host Extra: смешивать их параметры нельзя.
 - Nginx проксирует XHTTP endpoint без request/response buffering и без cache.
 
 ## Архитектура
@@ -30,11 +33,15 @@ flowchart TD
     B --> C["Origin Nginx stream :443"]
     BA["Beeline-клиент :443"] --> BB["Beeline edge"]
     BB --> C
+    BGA["Beget-клиент :443"] --> BGB["Beget edge"]
+    BGB --> C
     R["Reality-клиент :443"] --> C
     C -->|SNI = DOMAIN| D["Nginx HTTPS :8443"]
     D --> E["TurboFlare XHTTP :40112"]
     C -->|SNI = BEELINE_ORIGIN_DOMAIN| BD["Nginx HTTPS :8444"]
     BD --> BE["Beeline XHTTP :4443"]
+    C -->|SNI = BEGET_ORIGIN_DOMAIN| BGD["Nginx HTTPS :8445"]
+    BGD --> BGE["Beget XHTTP :10085"]
     C -->|SNI = REALITY_SERVER_NAMES| F["Direct Reality XHTTP :2443"]
 ```
 
@@ -42,9 +49,10 @@ flowchart TD
 |---|---|
 | TurboFlare | публичный TLS, DNS и доставка запросов до origin |
 | Beeline CDN | технический/custom CDN-домен и доставка GET upload-запросов до origin |
+| Beget CDN | `*.begetcdn.cloud`/custom-домен и доставка packet-up GET до origin |
 | Nginx stream | выбор локального backend по SNI |
 | Nginx HTTPS | TLS для соединения CDN → origin, заглушка и proxy на XHTTP |
-| Xray inbound | TurboFlare на `40112`, Beeline на `4443`, Direct Reality на `2443` |
+| Xray inbound | TurboFlare `40112`, Beeline `4443`, Beget `10085`, Reality `2443` |
 | Remnawave Host Extra | отдельные клиентские параметры для POST и GET провайдеров |
 
 ## Быстрый запуск
@@ -63,7 +71,7 @@ sudo bash install.sh
 Компоненты задаются в `.env`:
 
 ```dotenv
-DEPLOY_COMPONENTS=turboflare,beeline,reality
+DEPLOY_COMPONENTS=turboflare,beeline,beget,reality
 ```
 
 Или выбираются только для текущего запуска:
@@ -71,7 +79,8 @@ DEPLOY_COMPONENTS=turboflare,beeline,reality
 ```bash
 sudo bash install.sh --only turboflare
 sudo bash install.sh --only beeline
-sudo bash install.sh --only turboflare,beeline,reality
+sudo bash install.sh --only beget
+sudo bash install.sh --only turboflare,beeline,beget,reality
 ```
 
 Отключённые в конкретном запуске компоненты не удаляются.
@@ -90,10 +99,13 @@ include /etc/nginx/stream-map.d/*.map;
 build/shared/xray-inbounds.json
 build/turboflare/<DOMAIN>/
 build/beeline/<BEELINE_ORIGIN_DOMAIN>/
+build/beget/<BEGET_ORIGIN_DOMAIN>/
 build/reality/
 ```
 
-Краткая последовательность приведена в [QUICKSTART.md](QUICKSTART.md), настройка Beeline — в [docs/BEELINE.md](docs/BEELINE.md).
+Краткая последовательность приведена в [QUICKSTART.md](QUICKSTART.md),
+настройки провайдеров — в [docs/BEELINE.md](docs/BEELINE.md) и
+[docs/BEGET.md](docs/BEGET.md).
 
 ## Требования
 
@@ -152,6 +164,22 @@ BEELINE_NGINX_INTERNAL_PORT=8444
 BEELINE_XRAY_XHTTP_PORT=4443
 BEELINE_XRAY_INBOUND_TAG=xHTTP-Beeline
 BEELINE_XHTTP_PATH=/api/uploadFile/
+```
+
+Для Beget задайте отдельный origin с A-записью на сервер, технический домен
+`*.begetcdn.cloud` и параметры Let’s Encrypt:
+
+```dotenv
+BEGET_ORIGIN_DOMAIN=node-beget.example.net
+BEGET_CDN_SYSTEM_DOMAIN=abc123.begetcdn.cloud
+BEGET_CDN_CUSTOM_DOMAIN=
+BEGET_NGINX_INTERNAL_PORT=8445
+BEGET_XRAY_XHTTP_PORT=10085
+BEGET_XRAY_INBOUND_TAG=xHTTP-Beget
+BEGET_XHTTP_PATH=/
+BEGET_ORIGIN_CERT_MODE=letsencrypt
+BEGET_ACME_EMAIL=admin@example.com
+BEGET_ACME_AGREE_TOS=true
 ```
 
 `cdn.example.com` и `203.0.113.10` являются только примерами. Файл `.env` исключён через `.gitignore`.
@@ -307,12 +335,13 @@ server {
 ```nginx
 cdn.example.com             127.0.0.1:8443; # TurboFlare CDN
 origin-node.example.net     127.0.0.1:8444; # Beeline CDN origin
+node-beget.example.net      127.0.0.1:8445; # Beget CDN origin
 functions.yandexcloud.net   127.0.0.1:2443; # Direct Reality
 api-maps.yandex.ru          127.0.0.1:2443; # Direct Reality
 mediafeeds.yandex.ru        127.0.0.1:2443; # Direct Reality
 ```
 
-Только Nginx слушает публичный `443`. Все Host используют порт `443` со стороны клиента, а Xray inbound слушают разные внутренние порты. Порты `2443`, `4443`, `8443` и `8444` не открывайте в UFW.
+Только Nginx слушает публичный `443`. Все Host используют порт `443` со стороны клиента, а Xray inbound слушают разные внутренние порты. Порты `2443`, `4443`, `10085`, `8443`, `8444` и `8445` не открывайте в UFW.
 
 Полный пример: [examples/nginx-stream-block.conf](examples/nginx-stream-block.conf).
 
@@ -330,7 +359,7 @@ mediafeeds.yandex.ru        127.0.0.1:2443; # Direct Reality
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
-ss -lntp | grep -E ':443|:8443|:40112|:2443'
+ss -lntp | grep -E ':443|:8443|:8444|:8445|:40112|:4443|:10085|:2443'
 ```
 
 ## Xray Config Profile
@@ -346,6 +375,7 @@ build/shared/xray-inbounds.json
 ```text
 build/turboflare/<DOMAIN>/xray-inbound.json
 build/beeline/<BEELINE_ORIGIN_DOMAIN>/xray-inbound.json
+build/beget/<BEGET_ORIGIN_DOMAIN>/xray-inbound.json
 build/reality/xray-inbound.json
 ```
 
@@ -356,9 +386,16 @@ build/reality/xray-inbound.json
 `letsencrypt` либо `existing` с явно заданными путями. Подробности и требования
 HTTP-01 приведены в [docs/BEELINE.md](docs/BEELINE.md).
 
+Для Beget рекомендуется `BEGET_ORIGIN_CERT_MODE=letsencrypt`; origin и
+клиентский `*.begetcdn.cloud` должны быть разными именами. Настройка TLS,
+ресурса CDN и Host описана в [docs/BEGET.md](docs/BEGET.md).
+
 ![Демонстрационный Config Profile](docs/images/remnawave-profile.svg)
 
-Полные шаблоны: [templates/xray-inbound.json.template](templates/xray-inbound.json.template), [templates/xray-beeline-inbound.json.template](templates/xray-beeline-inbound.json.template) и [templates/xray-reality-inbound.json.template](templates/xray-reality-inbound.json.template).
+Полные шаблоны: [templates/xray-inbound.json.template](templates/xray-inbound.json.template),
+[templates/xray-beeline-inbound.json.template](templates/xray-beeline-inbound.json.template),
+[templates/xray-beget-inbound.json.template](templates/xray-beget-inbound.json.template) и
+[templates/xray-reality-inbound.json.template](templates/xray-reality-inbound.json.template).
 
 Критичные серверные параметры:
 
@@ -491,6 +528,11 @@ Reality inbound принимает PROXY protocol, который общий Ngi
 }
 ```
 
+Для Beget используйте готовые значения из
+`build/beget/<BEGET_ORIGIN_DOMAIN>/remnawave-host-values.md` и Extra из того же
+каталога. Address/SNI/Host должны указывать на `*.begetcdn.cloud` или custom
+CDN-домен, а не на `BEGET_ORIGIN_DOMAIN`. Метод — `GET`, mode — `packet-up`.
+
 ### Direct Reality Host
 
 Готовые значения находятся в `build/reality/remnawave-host-values.md`.
@@ -563,6 +605,20 @@ curl -4vk -X POST \
 
 Это диагностический запрос, а не полноценная протокольная сессия. Важны прохождение POST до origin и отсутствие `404` от другого location.
 
+### Через Beget
+
+```bash
+curl -4kso /dev/null -m 5 -w 'origin: %{http_code}\n' \
+  --resolve node-beget.example.net:443:203.0.113.10 \
+  https://node-beget.example.net/
+
+curl -kso /dev/null -m 5 -w 'cdn: %{http_code}\n' \
+  https://abc123.begetcdn.cloud/
+```
+
+Для голого GET на Beget XHTTP ожидается HTTP `400` от origin и edge.
+Пошаговая настройка: [docs/BEGET.md](docs/BEGET.md).
+
 ### Мобильная проверка
 
 1. Обновите профиль в тестовом приложении.
@@ -585,7 +641,9 @@ curl -4vk -X POST \
 | TLS error | Address, SNI и Host равны `DOMAIN`; insecure выключен |
 | Reality не подключается | SNI map, listener `127.0.0.1:2443`, Password/Public key, short ID и PROXY protocol |
 | Сессия создаётся без передачи данных | routing и существующий outbound tag |
-| GET-вариант не работает | вернуть POST/query baseline из шаблонов |
+| GET на Beeline/Beget не работает | использовать Extra своего компонента и разрешить GET на CDN |
+| Beget edge возвращает `405` | разрешить GET/HEAD/OPTIONS в ресурсе CDN |
+| Beget обрывает длинные сессии | отключить HTTP/3, Always Online и оптимизацию больших файлов |
 
 ## Безопасность
 
@@ -609,3 +667,5 @@ curl -4vk -X POST \
 - [Xray: REALITY](https://xtls.github.io/en/config/transports/reality.html)
 - [Xray: acceptProxyProtocol](https://xtls.github.io/en/config/transports/sockopt.html#acceptproxyprotocol-true-false)
 - [Исходное руководство TurboFlare](https://github.com/Artem-fix/Turboflare_CDN_Setup_Guide)
+- [Инструкция Beget CDN + Remnawave XHTTP](https://github.com/BobJustFry/WL-integration/blob/master/install_beget.md)
+- [Официальная документация Beget CDN](https://beget.com/ru/kb/manual/cdn)

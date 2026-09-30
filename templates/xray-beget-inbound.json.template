@@ -1,0 +1,44 @@
+{
+  "tag": "${BEGET_XRAY_INBOUND_TAG}",
+  "port": ${BEGET_XRAY_XHTTP_PORT},
+  "listen": "${BEGET_XRAY_LISTEN_IP}",
+  "protocol": "vless",
+  "settings": {
+    "clients": [],
+    "decryption": "none"
+  },
+  "sniffing": {
+    "enabled": true,
+    "routeOnly": false,
+    "destOverride": [
+      "http",
+      "tls",
+      "quic",
+      "fakedns"
+    ],
+    "metadataOnly": false
+  },
+  "streamSettings": {
+    "network": "xhttp",
+    "security": "none",
+    "sockopt": {
+      "trustedXForwardedFor": [
+        "X-Real-IP",
+        "X-Forwarded-For"
+      ]
+    },
+    "xhttpSettings": {
+      "host": "${BEGET_ORIGIN_DOMAIN}",
+      "mode": "packet-up",
+      "path": "${BEGET_XHTTP_PATH}",
+      "extra": {
+        "xPaddingKey": "_dc",
+        "xPaddingHeader": "X-Cache",
+        "xPaddingMethod": "tokenish",
+        "xPaddingObfsMode": true,
+        "xPaddingPlacement": "queryInHeader",
+        "uplinkHTTPMethod": "GET"
+      }
+    }
+  }
+}

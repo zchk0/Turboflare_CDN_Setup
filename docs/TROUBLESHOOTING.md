@@ -1,4 +1,4 @@
-# Диагностика TurboFlare + Remnawave XHTTP
+# Диагностика CDN + Remnawave XHTTP
 
 ## Базовый сбор состояния
 
@@ -9,7 +9,7 @@ set +a
 
 dig +short NS "$DOMAIN"
 dig +short A "$DOMAIN"
-ss -lntp | grep -E ':443|:8443|:40112|:2443'
+ss -lntp | grep -E ':443|:8443|:8444|:8445|:40112|:4443|:10085|:2443'
 sudo nginx -t
 
 curl -4vk --resolve "$DOMAIN:443:$ORIGIN_IP" "https://$DOMAIN/"
@@ -53,7 +53,10 @@ client_max_body_size 4m;
 
 ## GET-вариант не работает
 
-Для этого стенда это ожидаемо. Верните:
+Сначала определите компонент: TurboFlare использует POST, а Beeline и Beget —
+GET. Не переносите Extra между их Host.
+
+Для TurboFlare верните:
 
 - `mode: packet-up`;
 - POST по умолчанию — не задавайте `uplinkHTTPMethod: GET`;
@@ -63,6 +66,14 @@ client_max_body_size 4m;
 - исходный Xray inbound и облегчённый Host Extra из шаблонов.
 
 Nginx при возврате к POST/query менять не требуется.
+
+Для Beget проверьте:
+
+- `uplinkHTTPMethod: GET`, `xPaddingKey: _dc`, `xPaddingHeader: X-Cache`;
+- Path `/` одновременно в inbound и Host;
+- GET разрешён в ресурсе CDN;
+- HTTP/3, кэш и оптимизация больших файлов выключены;
+- используются файлы из `build/beget/$BEGET_ORIGIN_DOMAIN/`.
 
 ## Публичный домен показывает origin-сертификат
 
@@ -158,13 +169,16 @@ Inbound xHTTP-TurboFlare not found in inboundsHashMap, creating new one
 ```bash
 jq empty "build/turboflare/$DOMAIN/xray-inbound.json"
 jq empty "build/beeline/$BEELINE_ORIGIN_DOMAIN/xray-inbound.json"
+jq empty "build/beget/$BEGET_ORIGIN_DOMAIN/xray-inbound.json"
 jq empty "build/reality/xray-inbound.json"
 jq 'length >= 1' -e "build/shared/xray-inbounds.json"
 jq empty "build/turboflare/$DOMAIN/remnawave-xhttp-extra.json"
 jq empty "build/beeline/$BEELINE_ORIGIN_DOMAIN/remnawave-xhttp-extra.json"
+jq empty "build/beget/$BEGET_ORIGIN_DOMAIN/remnawave-xhttp-extra.json"
 jq empty "build/reality/client-credentials.json"
 
 grep -RFn -- "$XHTTP_PATH" "build/turboflare/$DOMAIN"
 grep -RFn -- "$BEELINE_XHTTP_PATH" "build/beeline/$BEELINE_ORIGIN_DOMAIN"
+grep -RFn -- "$BEGET_XHTTP_PATH" "build/beget/$BEGET_ORIGIN_DOMAIN"
 grep -RFn -- "$REALITY_PORT" "build/reality"
 ```

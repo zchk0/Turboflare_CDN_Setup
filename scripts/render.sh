@@ -16,8 +16,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/render.sh [--env PATH] [--only COMPONENTS]
 
-COMPONENTS is a comma-separated list containing turboflare, beeline and/or
-reality. --only overrides DEPLOY_COMPONENTS for this run without editing .env.
+COMPONENTS is a comma-separated list containing turboflare, beeline, beget
+and/or reality. --only overrides DEPLOY_COMPONENTS for this run without editing .env.
 For compatibility, a single positional argument is treated as the env path.
 EOF
 }
@@ -81,11 +81,11 @@ parse_components() {
     component="${component,,}"
     [[ -n "${component}" ]] || continue
     case "${component}" in
-      turboflare|beeline|reality)
+      turboflare|beeline|beget|reality)
         ENABLED_COMPONENTS["${component}"]=1
         ;;
       *)
-        die "Unsupported component: ${component}. Use turboflare, beeline and/or reality"
+        die "Unsupported component: ${component}. Use turboflare, beeline, beget and/or reality"
         ;;
     esac
   done
@@ -100,7 +100,7 @@ component_enabled() {
 }
 
 effective_components=()
-for component in turboflare beeline reality; do
+for component in turboflare beeline beget reality; do
   if component_enabled "${component}"; then
     effective_components+=("${component}")
   fi
@@ -109,6 +109,7 @@ DEPLOY_COMPONENTS_EFFECTIVE="$(IFS=,; printf '%s' "${effective_components[*]}")"
 
 TURBOFLARE_STREAM_MAP_FILE="${TURBOFLARE_STREAM_MAP_FILE:-${STREAM_MAP_FILE:-turboflare.map}}"
 BEELINE_STREAM_MAP_FILE="${BEELINE_STREAM_MAP_FILE:-beeline.map}"
+BEGET_STREAM_MAP_FILE="${BEGET_STREAM_MAP_FILE:-beget.map}"
 REALITY_STREAM_MAP_FILE="${REALITY_STREAM_MAP_FILE:-reality.map}"
 
 require_variables() {
@@ -135,7 +136,7 @@ validate_port() {
 validate_url_path() {
   local variable_name="$1"
   local value="${!variable_name}"
-  [[ "${value}" =~ ^/[A-Za-z0-9._~/-]+$ ]] \
+  [[ "${value}" =~ ^/[A-Za-z0-9._~/-]*$ ]] \
     || die "${variable_name} must start with / and contain only URL-safe path characters"
 }
 
@@ -298,6 +299,72 @@ if component_enabled beeline; then
   claim_origin_sni "${BEELINE_ORIGIN_DOMAIN}" "Beeline"
 fi
 
+if component_enabled beget; then
+  require_variables BEGET_ORIGIN_DOMAIN BEGET_CDN_SYSTEM_DOMAIN BEGET_ORIGIN_PORT \
+    BEGET_NGINX_INTERNAL_PORT BEGET_XRAY_LISTEN_IP BEGET_XRAY_XHTTP_PORT \
+    BEGET_XRAY_INBOUND_TAG BEGET_XHTTP_PATH BEGET_ORIGIN_CERT_MODE \
+    BEGET_ORIGIN_CERT_DAYS BEGET_ACME_ROOT BEGET_SQUAD_NAME
+  validate_domain BEGET_ORIGIN_DOMAIN
+  validate_domain BEGET_CDN_SYSTEM_DOMAIN
+  [[ "${BEGET_CDN_SYSTEM_DOMAIN,,}" == *.begetcdn.cloud ]] \
+    || die "BEGET_CDN_SYSTEM_DOMAIN must be a technical *.begetcdn.cloud domain"
+  [[ "${BEGET_ORIGIN_DOMAIN,,}" != "${BEGET_CDN_SYSTEM_DOMAIN,,}" ]] \
+    || die "BEGET_ORIGIN_DOMAIN must not point to the Beget CDN domain"
+  if [[ -n "${BEGET_CDN_CUSTOM_DOMAIN:-}" ]]; then
+    validate_domain BEGET_CDN_CUSTOM_DOMAIN
+    [[ "${BEGET_CDN_CUSTOM_DOMAIN,,}" != "${BEGET_CDN_SYSTEM_DOMAIN,,}" ]] \
+      || die "BEGET_CDN_CUSTOM_DOMAIN and BEGET_CDN_SYSTEM_DOMAIN must differ"
+    [[ "${BEGET_ORIGIN_DOMAIN,,}" != "${BEGET_CDN_CUSTOM_DOMAIN,,}" ]] \
+      || die "BEGET_ORIGIN_DOMAIN and BEGET_CDN_CUSTOM_DOMAIN must differ"
+  fi
+  validate_port BEGET_ORIGIN_PORT
+  (( BEGET_ORIGIN_PORT == 443 )) \
+    || die "BEGET_ORIGIN_PORT must be 443 when using the shared public SNI router"
+  validate_url_path BEGET_XHTTP_PATH
+  validate_var_www_path BEGET_ACME_ROOT
+  validate_safe_label BEGET_SQUAD_NAME
+  claim_map_file BEGET_STREAM_MAP_FILE
+  [[ "${BEGET_ORIGIN_CERT_DAYS}" =~ ^[0-9]+$ ]] || die "BEGET_ORIGIN_CERT_DAYS must be numeric"
+  (( BEGET_ORIGIN_CERT_DAYS >= 1 && BEGET_ORIGIN_CERT_DAYS <= 36500 )) \
+    || die "BEGET_ORIGIN_CERT_DAYS must be between 1 and 36500"
+
+  case "${BEGET_ORIGIN_CERT_MODE}" in
+    selfsigned)
+      BEGET_TLS_CERT_PATH="/etc/nginx/ssl/${BEGET_ORIGIN_DOMAIN}/origin.crt"
+      BEGET_TLS_KEY_PATH="/etc/nginx/ssl/${BEGET_ORIGIN_DOMAIN}/origin.key"
+      ;;
+    letsencrypt)
+      require_variables BEGET_ACME_EMAIL BEGET_ACME_AGREE_TOS
+      [[ "${BEGET_ACME_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] \
+        || die "BEGET_ACME_EMAIL is invalid"
+      [[ "${BEGET_ACME_AGREE_TOS}" == "true" ]] \
+        || die "Set BEGET_ACME_AGREE_TOS=true after accepting the Let's Encrypt subscriber agreement"
+      BEGET_TLS_CERT_PATH="/etc/letsencrypt/live/${BEGET_ORIGIN_DOMAIN}/fullchain.pem"
+      BEGET_TLS_KEY_PATH="/etc/letsencrypt/live/${BEGET_ORIGIN_DOMAIN}/privkey.pem"
+      ;;
+    existing)
+      require_variables BEGET_ORIGIN_CERT BEGET_ORIGIN_KEY
+      [[ "${BEGET_ORIGIN_CERT}" =~ ^/[A-Za-z0-9._/-]+$ && "${BEGET_ORIGIN_CERT}" != *".."* ]] \
+        || die "BEGET_ORIGIN_CERT must be a safe absolute path without .."
+      [[ "${BEGET_ORIGIN_KEY}" =~ ^/[A-Za-z0-9._/-]+$ && "${BEGET_ORIGIN_KEY}" != *".."* ]] \
+        || die "BEGET_ORIGIN_KEY must be a safe absolute path without .."
+      BEGET_TLS_CERT_PATH="${BEGET_ORIGIN_CERT}"
+      BEGET_TLS_KEY_PATH="${BEGET_ORIGIN_KEY}"
+      ;;
+    *)
+      die "BEGET_ORIGIN_CERT_MODE must be selfsigned, letsencrypt or existing"
+      ;;
+  esac
+
+  BEGET_HOST_DOMAIN="${BEGET_CDN_CUSTOM_DOMAIN:-${BEGET_CDN_SYSTEM_DOMAIN}}"
+  BEGET_CDN_CUSTOM_DOMAIN_DISPLAY="${BEGET_CDN_CUSTOM_DOMAIN:-not configured}"
+  BEGET_XRAY_NGINX_BACKEND="$(nginx_backend_for "${BEGET_XRAY_LISTEN_IP}")"
+  claim_port BEGET_NGINX_INTERNAL_PORT "Beget Nginx"
+  claim_port BEGET_XRAY_XHTTP_PORT "Beget Xray"
+  claim_tag BEGET_XRAY_INBOUND_TAG
+  claim_origin_sni "${BEGET_ORIGIN_DOMAIN}" "Beget"
+fi
+
 if component_enabled reality; then
   require_variables REALITY_LISTEN_IP REALITY_PORT REALITY_INBOUND_TAG REALITY_XHTTP_PATH \
     REALITY_TARGET REALITY_SERVER_NAMES REALITY_PRIVATE_KEY REALITY_PASSWORD REALITY_SHORT_IDS
@@ -361,7 +428,8 @@ SHARED_BUILD_DIR="${BUILD_ROOT}/shared"
 mkdir -p "${SHARED_BUILD_DIR}"
 
 export DEPLOY_COMPONENTS_EFFECTIVE ORIGIN_IP STREAM_MAP_DIR CONFIG_PROFILE_NAME
-export TURBOFLARE_STREAM_MAP_FILE BEELINE_STREAM_MAP_FILE REALITY_STREAM_MAP_FILE
+export TURBOFLARE_STREAM_MAP_FILE BEELINE_STREAM_MAP_FILE BEGET_STREAM_MAP_FILE
+export REALITY_STREAM_MAP_FILE
 export DOMAIN ORIGIN_PORT NGINX_INTERNAL_PORT XRAY_LISTEN_IP XRAY_NGINX_BACKEND
 export XRAY_XHTTP_PORT XRAY_INBOUND_TAG XHTTP_PATH ORIGIN_CERT_DAYS
 export COVER_ROOT COVER_TITLE SQUAD_NAME
@@ -373,12 +441,19 @@ export BEELINE_XRAY_INBOUND_TAG BEELINE_XHTTP_PATH BEELINE_ORIGIN_CERT_MODE
 export BEELINE_TLS_CERT_PATH BEELINE_TLS_KEY_PATH BEELINE_ORIGIN_CERT_DAYS
 export BEELINE_COVER_ROOT BEELINE_COVER_TITLE BEELINE_ACME_ROOT BEELINE_ACME_EMAIL
 export BEELINE_ACME_AGREE_TOS BEELINE_SQUAD_NAME
+export BEGET_ORIGIN_DOMAIN BEGET_CDN_SYSTEM_DOMAIN BEGET_CDN_CUSTOM_DOMAIN
+export BEGET_CDN_CUSTOM_DOMAIN_DISPLAY BEGET_HOST_DOMAIN BEGET_ORIGIN_PORT
+export BEGET_NGINX_INTERNAL_PORT BEGET_XRAY_LISTEN_IP BEGET_XRAY_NGINX_BACKEND
+export BEGET_XRAY_XHTTP_PORT BEGET_XRAY_INBOUND_TAG BEGET_XHTTP_PATH
+export BEGET_ORIGIN_CERT_MODE BEGET_TLS_CERT_PATH BEGET_TLS_KEY_PATH
+export BEGET_ORIGIN_CERT_DAYS BEGET_ACME_ROOT BEGET_ACME_EMAIL
+export BEGET_ACME_AGREE_TOS BEGET_SQUAD_NAME
 export REALITY_LISTEN_IP REALITY_NGINX_BACKEND REALITY_PORT REALITY_INBOUND_TAG
 export REALITY_XHTTP_PATH REALITY_TARGET REALITY_SERVER_NAMES_JSON REALITY_SHORT_IDS_JSON
 export REALITY_PRIVATE_KEY REALITY_PASSWORD REALITY_PRIMARY_SERVER_NAME
 export REALITY_PRIMARY_SHORT_ID REALITY_SERVER_NAMES_MAP
 
-SUBST_VARIABLES='${DEPLOY_COMPONENTS_EFFECTIVE} ${ORIGIN_IP} ${STREAM_MAP_DIR} ${CONFIG_PROFILE_NAME} ${TURBOFLARE_STREAM_MAP_FILE} ${BEELINE_STREAM_MAP_FILE} ${REALITY_STREAM_MAP_FILE} ${DOMAIN} ${ORIGIN_PORT} ${NGINX_INTERNAL_PORT} ${XRAY_LISTEN_IP} ${XRAY_NGINX_BACKEND} ${XRAY_XHTTP_PORT} ${XRAY_INBOUND_TAG} ${XHTTP_PATH} ${ORIGIN_CERT_DAYS} ${COVER_ROOT} ${COVER_TITLE} ${SQUAD_NAME} ${BEELINE_ORIGIN_DOMAIN} ${BEELINE_CDN_SYSTEM_DOMAIN} ${BEELINE_CDN_CUSTOM_DOMAIN} ${BEELINE_CDN_CUSTOM_DOMAIN_DISPLAY} ${BEELINE_HOST_DOMAIN} ${BEELINE_ORIGIN_PORT} ${BEELINE_NGINX_INTERNAL_PORT} ${BEELINE_XRAY_LISTEN_IP} ${BEELINE_XRAY_NGINX_BACKEND} ${BEELINE_XRAY_XHTTP_PORT} ${BEELINE_XRAY_INBOUND_TAG} ${BEELINE_XHTTP_PATH} ${BEELINE_ORIGIN_CERT_MODE} ${BEELINE_TLS_CERT_PATH} ${BEELINE_TLS_KEY_PATH} ${BEELINE_ORIGIN_CERT_DAYS} ${BEELINE_COVER_ROOT} ${BEELINE_COVER_TITLE} ${BEELINE_ACME_ROOT} ${BEELINE_ACME_EMAIL} ${BEELINE_ACME_AGREE_TOS} ${BEELINE_SQUAD_NAME} ${REALITY_LISTEN_IP} ${REALITY_NGINX_BACKEND} ${REALITY_PORT} ${REALITY_INBOUND_TAG} ${REALITY_XHTTP_PATH} ${REALITY_TARGET} ${REALITY_SERVER_NAMES_JSON} ${REALITY_SHORT_IDS_JSON} ${REALITY_PRIVATE_KEY} ${REALITY_PASSWORD} ${REALITY_PRIMARY_SERVER_NAME} ${REALITY_PRIMARY_SHORT_ID} ${REALITY_SERVER_NAMES_MAP}'
+SUBST_VARIABLES='${DEPLOY_COMPONENTS_EFFECTIVE} ${ORIGIN_IP} ${STREAM_MAP_DIR} ${CONFIG_PROFILE_NAME} ${TURBOFLARE_STREAM_MAP_FILE} ${BEELINE_STREAM_MAP_FILE} ${BEGET_STREAM_MAP_FILE} ${REALITY_STREAM_MAP_FILE} ${DOMAIN} ${ORIGIN_PORT} ${NGINX_INTERNAL_PORT} ${XRAY_LISTEN_IP} ${XRAY_NGINX_BACKEND} ${XRAY_XHTTP_PORT} ${XRAY_INBOUND_TAG} ${XHTTP_PATH} ${ORIGIN_CERT_DAYS} ${COVER_ROOT} ${COVER_TITLE} ${SQUAD_NAME} ${BEELINE_ORIGIN_DOMAIN} ${BEELINE_CDN_SYSTEM_DOMAIN} ${BEELINE_CDN_CUSTOM_DOMAIN} ${BEELINE_CDN_CUSTOM_DOMAIN_DISPLAY} ${BEELINE_HOST_DOMAIN} ${BEELINE_ORIGIN_PORT} ${BEELINE_NGINX_INTERNAL_PORT} ${BEELINE_XRAY_LISTEN_IP} ${BEELINE_XRAY_NGINX_BACKEND} ${BEELINE_XRAY_XHTTP_PORT} ${BEELINE_XRAY_INBOUND_TAG} ${BEELINE_XHTTP_PATH} ${BEELINE_ORIGIN_CERT_MODE} ${BEELINE_TLS_CERT_PATH} ${BEELINE_TLS_KEY_PATH} ${BEELINE_ORIGIN_CERT_DAYS} ${BEELINE_COVER_ROOT} ${BEELINE_COVER_TITLE} ${BEELINE_ACME_ROOT} ${BEELINE_ACME_EMAIL} ${BEELINE_ACME_AGREE_TOS} ${BEELINE_SQUAD_NAME} ${BEGET_ORIGIN_DOMAIN} ${BEGET_CDN_SYSTEM_DOMAIN} ${BEGET_CDN_CUSTOM_DOMAIN} ${BEGET_CDN_CUSTOM_DOMAIN_DISPLAY} ${BEGET_HOST_DOMAIN} ${BEGET_ORIGIN_PORT} ${BEGET_NGINX_INTERNAL_PORT} ${BEGET_XRAY_LISTEN_IP} ${BEGET_XRAY_NGINX_BACKEND} ${BEGET_XRAY_XHTTP_PORT} ${BEGET_XRAY_INBOUND_TAG} ${BEGET_XHTTP_PATH} ${BEGET_ORIGIN_CERT_MODE} ${BEGET_TLS_CERT_PATH} ${BEGET_TLS_KEY_PATH} ${BEGET_ORIGIN_CERT_DAYS} ${BEGET_ACME_ROOT} ${BEGET_ACME_EMAIL} ${BEGET_ACME_AGREE_TOS} ${BEGET_SQUAD_NAME} ${REALITY_LISTEN_IP} ${REALITY_NGINX_BACKEND} ${REALITY_PORT} ${REALITY_INBOUND_TAG} ${REALITY_XHTTP_PATH} ${REALITY_TARGET} ${REALITY_SERVER_NAMES_JSON} ${REALITY_SHORT_IDS_JSON} ${REALITY_PRIVATE_KEY} ${REALITY_PASSWORD} ${REALITY_PRIMARY_SERVER_NAME} ${REALITY_PRIMARY_SHORT_ID} ${REALITY_SERVER_NAMES_MAP}'
 
 generated_files=()
 inbound_files=()
@@ -418,6 +493,21 @@ if component_enabled beeline; then
   inbound_files+=("${BEELINE_BUILD_DIR}/xray-inbound.json")
 fi
 
+if component_enabled beget; then
+  BEGET_BUILD_DIR="${BUILD_ROOT}/beget/${BEGET_ORIGIN_DOMAIN}"
+  mkdir -p "${BEGET_BUILD_DIR}"
+  render "${PROJECT_DIR}/templates/nginx-beget-acme-bootstrap.conf.template" "${BEGET_BUILD_DIR}/nginx-acme-bootstrap.conf"
+  render "${PROJECT_DIR}/templates/nginx-beget-site.conf.template" "${BEGET_BUILD_DIR}/nginx-site.conf"
+  render "${PROJECT_DIR}/templates/nginx-beget-stream-map-entry.conf.template" "${BEGET_BUILD_DIR}/nginx-stream-map-entry.map"
+  render "${PROJECT_DIR}/templates/xray-beget-inbound.json.template" "${BEGET_BUILD_DIR}/xray-inbound.json"
+  render "${PROJECT_DIR}/templates/remnawave-beget-xhttp-extra.json.template" "${BEGET_BUILD_DIR}/remnawave-xhttp-extra.json"
+  render "${PROJECT_DIR}/templates/remnawave-beget-host-values.md.template" "${BEGET_BUILD_DIR}/remnawave-host-values.md"
+  render "${PROJECT_DIR}/templates/beget-cdn-settings.md.template" "${BEGET_BUILD_DIR}/beget-cdn-settings.md"
+  jq empty "${BEGET_BUILD_DIR}/xray-inbound.json"
+  jq empty "${BEGET_BUILD_DIR}/remnawave-xhttp-extra.json"
+  inbound_files+=("${BEGET_BUILD_DIR}/xray-inbound.json")
+fi
+
 if component_enabled reality; then
   REALITY_BUILD_DIR="${BUILD_ROOT}/reality"
   mkdir -p "${REALITY_BUILD_DIR}"
@@ -446,6 +536,9 @@ if component_enabled turboflare; then
 fi
 if component_enabled beeline; then
   printf 'Beeline files: %s\n' "${BEELINE_BUILD_DIR}"
+fi
+if component_enabled beget; then
+  printf 'Beget files: %s\n' "${BEGET_BUILD_DIR}"
 fi
 if component_enabled reality; then
   printf 'Reality files: %s\n' "${REALITY_BUILD_DIR}"

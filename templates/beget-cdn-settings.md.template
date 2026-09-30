@@ -1,0 +1,52 @@
+# Beget CDN settings
+
+## DNS and resource
+
+- Origin `${BEGET_ORIGIN_DOMAIN}`: `A` -> `${ORIGIN_IP}`.
+- Create the Beget CDN resource with the origin type **domain name** and value
+  `${BEGET_ORIGIN_DOMAIN}`. The resource origin cannot be changed later.
+- Technical edge domain: `${BEGET_CDN_SYSTEM_DOMAIN}`.
+- Optional custom edge domain: `${BEGET_CDN_CUSTOM_DOMAIN_DISPLAY}`.
+- Selected Remnawave Host domain: `${BEGET_HOST_DOMAIN}`.
+- Never point `${BEGET_ORIGIN_DOMAIN}` to `*.begetcdn.cloud`.
+- A custom domain added in the Beget panel requires Beget-managed DNS/NS. With
+  external DNS, use the technical domain or configure the CNAME externally.
+
+## Origin
+
+| Field | Value |
+|---|---|
+| Origin | `${BEGET_ORIGIN_DOMAIN}:${BEGET_ORIGIN_PORT}` |
+| Protocol | HTTPS |
+| Origin SNI/hostname | `${BEGET_ORIGIN_DOMAIN}` |
+| Origin certificate mode | `${BEGET_ORIGIN_CERT_MODE}` |
+| XHTTP path | `${BEGET_XHTTP_PATH}` |
+
+Using an IP as the Beget origin is not recommended with the shared SNI router.
+If it is unavoidable, Beget must send both TLS SNI and `Host` as
+`${BEGET_ORIGIN_DOMAIN}`; an HTTP `Host` header alone is not sufficient for
+the stream router.
+
+## CDN behavior
+
+- Disable CDN and browser caching (or set the minimum CDN TTL of 1 second).
+- Disable Always Online, following origin redirects and ignoring query params.
+- Disable secure links, Referer/IP/User-Agent access policies for the first test.
+- Disable HTTP/3, Gzip and large-file optimization/slicing.
+- Allow `GET`, `HEAD` and `OPTIONS` (or leave the method whitelist disabled).
+- Do not enable CORS rewriting or response headers on the CDN.
+- If sessions break after 60-120 seconds, ask Beget support about increasing
+  the origin timeout. Nginx is already configured for 3600 seconds.
+
+## Checks
+
+```bash
+curl -4kso /dev/null -m 5 -w 'origin: %{http_code}\n' \
+  --resolve "${BEGET_ORIGIN_DOMAIN}:443:${ORIGIN_IP}" \
+  "https://${BEGET_ORIGIN_DOMAIN}${BEGET_XHTTP_PATH}"
+
+curl -kso /dev/null -m 5 -w 'cdn: %{http_code}\n' \
+  "https://${BEGET_HOST_DOMAIN}${BEGET_XHTTP_PATH}"
+```
+
+HTTP `400` from both requests is the expected response to a bare XHTTP GET.

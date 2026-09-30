@@ -1,0 +1,17 @@
+{
+  "xmux": {
+    "maxConnections": "1",
+    "cMaxReuseTimes": "0",
+    "hMaxRequestTimes": "300-600",
+    "hMaxReusableSecs": "900-1800",
+    "hKeepAlivePeriod": 0
+  },
+  "xPaddingKey": "_dc",
+  "xPaddingHeader": "X-Cache",
+  "xPaddingMethod": "tokenish",
+  "xPaddingObfsMode": true,
+  "xPaddingPlacement": "queryInHeader",
+  "uplinkHTTPMethod": "GET",
+  "scMaxEachPostBytes": "500000-1000000",
+  "scMinPostsIntervalMs": "50-150"
+}

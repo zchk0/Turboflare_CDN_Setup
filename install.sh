@@ -18,7 +18,8 @@ Usage: install.sh [--env PATH] [--only COMPONENTS]
 Examples:
   sudo bash install.sh --only turboflare
   sudo bash install.sh --only beeline
-  sudo bash install.sh --only turboflare,beeline,reality
+  sudo bash install.sh --only beget
+  sudo bash install.sh --only turboflare,beeline,beget,reality
 
 --only overrides DEPLOY_COMPONENTS for this run. Configurations belonging to
 components omitted from the list are left untouched; they are not removed.
@@ -105,11 +106,11 @@ parse_components() {
     component="${component,,}"
     [[ -n "${component}" ]] || continue
     case "${component}" in
-      turboflare|beeline|reality)
+      turboflare|beeline|beget|reality)
         ENABLED_COMPONENTS["${component}"]=1
         ;;
       *)
-        die "Unsupported component: ${component}. Use turboflare, beeline and/or reality"
+        die "Unsupported component: ${component}. Use turboflare, beeline, beget and/or reality"
         ;;
     esac
   done
@@ -122,12 +123,13 @@ component_enabled() {
   [[ -n "${ENABLED_COMPONENTS[$1]:-}" ]]
 }
 
-if component_enabled beeline \
-  && [[ "${BEELINE_ORIGIN_CERT_MODE:-}" == "letsencrypt" ]] \
-  && ! command -v certbot >/dev/null 2>&1; then
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y certbot
+if { component_enabled beeline && [[ "${BEELINE_ORIGIN_CERT_MODE:-}" == "letsencrypt" ]]; } \
+  || { component_enabled beget && [[ "${BEGET_ORIGIN_CERT_MODE:-}" == "letsencrypt" ]]; }; then
+  if ! command -v certbot >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y certbot
+  fi
 fi
 
 if component_enabled reality; then
@@ -148,6 +150,7 @@ set +a
 
 TURBOFLARE_STREAM_MAP_FILE="${TURBOFLARE_STREAM_MAP_FILE:-${STREAM_MAP_FILE:-turboflare.map}}"
 BEELINE_STREAM_MAP_FILE="${BEELINE_STREAM_MAP_FILE:-beeline.map}"
+BEGET_STREAM_MAP_FILE="${BEGET_STREAM_MAP_FILE:-beget.map}"
 REALITY_STREAM_MAP_FILE="${REALITY_STREAM_MAP_FILE:-reality.map}"
 
 BUILD_ROOT="${SCRIPT_DIR}/build"
@@ -235,6 +238,8 @@ install_letsencrypt_certificate() {
   local build_dir="$2"
   local site_available="$3"
   local site_enabled="$4"
+  local acme_root="$5"
+  local acme_email="$6"
   local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
   local key_path="/etc/letsencrypt/live/${domain}/privkey.pem"
   local backup_path="${site_available}.bak-${TIMESTAMP}"
@@ -247,7 +252,7 @@ install_letsencrypt_certificate() {
 
     if [[ ! -f "${site_available}" ]] \
       || ! grep -Fq 'location ^~ /.well-known/acme-challenge/' "${site_available}" \
-      || ! grep -Fq "root ${BEELINE_ACME_ROOT};" "${site_available}"; then
+      || ! grep -Fq "root ${acme_root};" "${site_available}"; then
       bootstrap_required=true
       backup_and_install "${build_dir}/nginx-acme-bootstrap.conf" "${site_available}" 644
     fi
@@ -259,10 +264,10 @@ install_letsencrypt_certificate() {
     if ! certbot certonly \
       --non-interactive \
       --agree-tos \
-      --email "${BEELINE_ACME_EMAIL}" \
+      --email "${acme_email}" \
       --cert-name "${domain}" \
       --webroot \
-      --webroot-path "${BEELINE_ACME_ROOT}" \
+      --webroot-path "${acme_root}" \
       --domain "${domain}"; then
       if [[ "${bootstrap_required}" == true && -f "${backup_path}" ]]; then
         cp -a -- "${backup_path}" "${site_available}"
@@ -314,7 +319,8 @@ if component_enabled beeline; then
       ;;
     letsencrypt)
       install_letsencrypt_certificate "${BEELINE_ORIGIN_DOMAIN}" "${BEELINE_BUILD_DIR}" \
-        "${BEELINE_SITE_AVAILABLE}" "${BEELINE_SITE_ENABLED}"
+        "${BEELINE_SITE_AVAILABLE}" "${BEELINE_SITE_ENABLED}" \
+        "${BEELINE_ACME_ROOT}" "${BEELINE_ACME_EMAIL}"
       ;;
     existing)
       [[ -s "${BEELINE_ORIGIN_CERT}" ]] || die "Beeline origin certificate not found: ${BEELINE_ORIGIN_CERT}"
@@ -326,6 +332,34 @@ if component_enabled beeline; then
   enable_site "${BEELINE_SITE_AVAILABLE}" "${BEELINE_SITE_ENABLED}"
   backup_and_install "${BEELINE_BUILD_DIR}/nginx-stream-map-entry.map" \
     "${STREAM_MAP_DIR}/${BEELINE_STREAM_MAP_FILE}" 644
+fi
+
+if component_enabled beget; then
+  BEGET_BUILD_DIR="${BUILD_ROOT}/beget/${BEGET_ORIGIN_DOMAIN}"
+  BEGET_SITE_AVAILABLE="/etc/nginx/sites-available/${BEGET_ORIGIN_DOMAIN}.conf"
+  BEGET_SITE_ENABLED="/etc/nginx/sites-enabled/${BEGET_ORIGIN_DOMAIN}.conf"
+
+  install -d -m 755 "${BEGET_ACME_ROOT}/.well-known/acme-challenge"
+
+  case "${BEGET_ORIGIN_CERT_MODE}" in
+    selfsigned)
+      install_self_signed_certificate "${BEGET_ORIGIN_DOMAIN}" "${BEGET_ORIGIN_CERT_DAYS}" false
+      ;;
+    letsencrypt)
+      install_letsencrypt_certificate "${BEGET_ORIGIN_DOMAIN}" "${BEGET_BUILD_DIR}" \
+        "${BEGET_SITE_AVAILABLE}" "${BEGET_SITE_ENABLED}" \
+        "${BEGET_ACME_ROOT}" "${BEGET_ACME_EMAIL}"
+      ;;
+    existing)
+      [[ -s "${BEGET_ORIGIN_CERT}" ]] || die "Beget origin certificate not found: ${BEGET_ORIGIN_CERT}"
+      [[ -s "${BEGET_ORIGIN_KEY}" ]] || die "Beget origin private key not found: ${BEGET_ORIGIN_KEY}"
+      ;;
+  esac
+
+  backup_and_install "${BEGET_BUILD_DIR}/nginx-site.conf" "${BEGET_SITE_AVAILABLE}" 644
+  enable_site "${BEGET_SITE_AVAILABLE}" "${BEGET_SITE_ENABLED}"
+  backup_and_install "${BEGET_BUILD_DIR}/nginx-stream-map-entry.map" \
+    "${STREAM_MAP_DIR}/${BEGET_STREAM_MAP_FILE}" 644
 fi
 
 if component_enabled reality; then
@@ -346,7 +380,7 @@ nginx -t
 systemctl reload nginx
 
 printf '\nInstalled components:'
-for component in turboflare beeline reality; do
+for component in turboflare beeline beget reality; do
   if component_enabled "${component}"; then
     printf ' %s' "${component}"
   fi
@@ -372,6 +406,18 @@ if component_enabled beeline; then
   fi
 fi
 
+if component_enabled beget; then
+  printf '\nBeget files: %s\n' "${BEGET_BUILD_DIR}"
+  printf 'Direct Beget origin check (HTTP 400 is expected):\n'
+  printf 'curl -4kso /dev/null -m 5 -w "origin: %%{http_code}\\n" --resolve %s:443:%s https://%s%s\n' \
+    "${BEGET_ORIGIN_DOMAIN}" "${ORIGIN_IP}" "${BEGET_ORIGIN_DOMAIN}" "${BEGET_XHTTP_PATH}"
+  if [[ "${BEGET_ORIGIN_CERT_MODE}" == "selfsigned" ]]; then
+    printf 'Origin TLS is self-signed. Beget origin certificate verification must be disabled.\n'
+  elif [[ "${BEGET_ORIGIN_CERT_MODE}" == "letsencrypt" ]]; then
+    printf "Origin TLS uses an automatically managed Let's Encrypt certificate.\n"
+  fi
+fi
+
 printf '\nExpected local listeners after assigning the generated inbounds to the node:\n'
 listener_ports=(443)
 if component_enabled turboflare; then
@@ -379,6 +425,9 @@ if component_enabled turboflare; then
 fi
 if component_enabled beeline; then
   listener_ports+=("${BEELINE_NGINX_INTERNAL_PORT}" "${BEELINE_XRAY_XHTTP_PORT}")
+fi
+if component_enabled beget; then
+  listener_ports+=("${BEGET_NGINX_INTERNAL_PORT}" "${BEGET_XRAY_XHTTP_PORT}")
 fi
 if component_enabled reality; then
   listener_ports+=("${REALITY_PORT}")

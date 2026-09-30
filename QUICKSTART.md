@@ -16,8 +16,9 @@ nano .env
 ```dotenv
 DEPLOY_COMPONENTS=turboflare
 DEPLOY_COMPONENTS=beeline
+DEPLOY_COMPONENTS=beget
 DEPLOY_COMPONENTS=turboflare,beeline
-DEPLOY_COMPONENTS=turboflare,beeline,reality
+DEPLOY_COMPONENTS=turboflare,beeline,beget,reality
 ```
 
 Командная строка `--only` временно переопределяет это значение и не удаляет
@@ -26,7 +27,8 @@ DEPLOY_COMPONENTS=turboflare,beeline,reality
 ```bash
 sudo bash install.sh --only turboflare
 sudo bash install.sh --only beeline
-sudo bash install.sh --only turboflare,beeline,reality
+sudo bash install.sh --only beget
+sudo bash install.sh --only turboflare,beeline,beget,reality
 ```
 
 ## 2. Общие значения
@@ -42,6 +44,7 @@ CONFIG_PROFILE_NAME=LAB_PROFILE
 ```text
 TurboFlare: Nginx 8443, Xray 40112
 Beeline:    Nginx 8444, Xray 4443
+Beget:      Nginx 8445, Xray 10085
 Reality:    Xray 2443
 ```
 
@@ -89,7 +92,29 @@ BEELINE_ACME_EMAIL=admin@example.com
 BEELINE_ACME_AGREE_TOS=true
 ```
 
-## 5. Reality
+## 5. Beget
+
+Для `beget` нужны отдельный origin-домен с A-записью на VPS и технический
+домен `*.begetcdn.cloud`, выданный после создания ресурса:
+
+```dotenv
+BEGET_ORIGIN_DOMAIN=node-beget.example.net
+BEGET_CDN_SYSTEM_DOMAIN=abc123.begetcdn.cloud
+BEGET_CDN_CUSTOM_DOMAIN=
+BEGET_NGINX_INTERNAL_PORT=8445
+BEGET_XRAY_XHTTP_PORT=10085
+BEGET_XRAY_INBOUND_TAG=xHTTP-Beget
+BEGET_XHTTP_PATH=/
+BEGET_ORIGIN_CERT_MODE=letsencrypt
+BEGET_ACME_EMAIL=admin@example.com
+BEGET_ACME_AGREE_TOS=true
+```
+
+Origin и CDN-домен нельзя совмещать: `BEGET_ORIGIN_DOMAIN` должен иметь
+`A -> ORIGIN_IP`, а в Remnawave Host используется CDN-домен. Полная настройка
+origin, панели Beget и Remnawave: [docs/BEGET.md](docs/BEGET.md).
+
+## 6. Reality
 
 Если включён `reality`, первый запуск автоматически сгенерирует ключевую пару,
 short ID и случайный path. Если контейнер ноды называется не `remnanode`, укажите:
@@ -98,7 +123,7 @@ short ID и случайный path. Если контейнер ноды наз
 XRAY_KEYGEN_CONTAINER=имя-контейнера
 ```
 
-## 6. Установка
+## 7. Установка
 
 ```bash
 chmod +x install.sh scripts/render.sh
@@ -115,7 +140,7 @@ include /etc/nginx/stream-map.d/*.map;
 Не создавайте второй `stream {}` или второй публичный `listen 443`. После
 изменения повторите установку.
 
-## 7. Config Profile
+## 8. Config Profile
 
 Добавьте объекты из общего файла в массив `inbounds` профиля Remnawave:
 
@@ -128,26 +153,29 @@ build/shared/xray-inbounds.json
 ```text
 build/turboflare/<DOMAIN>/
 build/beeline/<BEELINE_ORIGIN_DOMAIN>/
+build/beget/<BEGET_ORIGIN_DOMAIN>/
 build/reality/
 ```
 
 Назначьте Config Profile ноде и проверьте нужные локальные порты:
 
 ```bash
-ss -lntp | grep -E ':40112|:4443|:2443'
+ss -lntp | grep -E ':40112|:4443|:10085|:2443'
 ```
 
-## 8. Remnawave Hosts
+## 9. Remnawave Hosts
 
 - TurboFlare: `build/turboflare/<DOMAIN>/remnawave-host-values.md`.
 - Beeline: `build/beeline/<BEELINE_ORIGIN_DOMAIN>/remnawave-host-values.md`.
+- Beget: `build/beget/<BEGET_ORIGIN_DOMAIN>/remnawave-host-values.md`.
 - Reality: `build/reality/remnawave-host-values.md`.
 
 Для каждого CDN используйте `remnawave-xhttp-extra.json` из того же каталога:
-TurboFlare и Beeline имеют несовместимые методы uplink и не должны использовать
-один Extra.
+TurboFlare использует POST, а Beeline и Beget — отдельные GET-профили со
+своими padding-параметрами. Используйте Extra из каталога конкретного
+компонента.
 
-## 9. Проверка
+## 10. Проверка
 
 ```bash
 set -a
@@ -157,6 +185,10 @@ set +a
 curl -4vk --resolve "$DOMAIN:443:$ORIGIN_IP" "https://$DOMAIN/"
 curl -4vk --resolve "$BEELINE_ORIGIN_DOMAIN:443:$ORIGIN_IP" \
   "https://$BEELINE_ORIGIN_DOMAIN$BEELINE_XHTTP_PATH"
+curl -4kso /dev/null -m 5 -w 'beget origin: %{http_code}\n' \
+  --resolve "$BEGET_ORIGIN_DOMAIN:443:$ORIGIN_IP" \
+  "https://$BEGET_ORIGIN_DOMAIN$BEGET_XHTTP_PATH"
 ```
 
-Подробности по TurboFlare и общей архитектуре: [README.md](README.md).
+Для Beget ожидается HTTP `400` от голого XHTTP GET. Подробности по общей
+архитектуре: [README.md](README.md).
