@@ -368,7 +368,10 @@ if component_enabled reality; then
     "${STREAM_MAP_DIR}/${REALITY_STREAM_MAP_FILE}" 644
 fi
 
-if ! nginx -T 2>&1 | grep -Fq "include ${STREAM_MAP_DIR}/*.map;"; then
+# Do not use grep -q here. With pipefail enabled, grep can close the pipe after
+# the first match and make a verbose `nginx -T` exit with SIGPIPE, producing a
+# false ACTION REQUIRED warning.
+if ! nginx -T 2>&1 | grep -F "include ${STREAM_MAP_DIR}/*.map;" >/dev/null; then
   printf '\nACTION REQUIRED:\n'
   printf 'Add this line INSIDE the existing map $ssl_preread_server_name block:\n\n'
   printf '    include %s/*.map;\n\n' "${STREAM_MAP_DIR}"

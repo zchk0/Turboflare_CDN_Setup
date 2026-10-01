@@ -21,7 +21,7 @@ Beeline и Beget CDN XHTTP, а также прямого VLESS XHTTP Reality н�
 - Проверенная версия: **Xray-core 26.7.28** на ноде и в клиентском приложении.
 - Рабочая для TurboFlare схема: **POST + body + session/sequence в query**.
 - Рабочая для Beeline схема из приложенного руководства: **GET + body**, session в header и sequence в query.
-- Рабочая для Beget схема: **packet-up + GET**, padding `_dc` / `X-Cache`.
+- Рабочая для Beget схема: **packet-up + GET**, путь `/hls/stream.m3u8`, session/seq в query, padding в `X-Cache` без URL (`header`).
 - Каждый CDN использует собственные inbound и Host Extra: смешивать их параметры нельзя.
 - Nginx проксирует XHTTP endpoint без request/response buffering и без cache.
 
@@ -176,7 +176,7 @@ BEGET_CDN_CUSTOM_DOMAIN=
 BEGET_NGINX_INTERNAL_PORT=8445
 BEGET_XRAY_XHTTP_PORT=10085
 BEGET_XRAY_INBOUND_TAG=xHTTP-Beget
-BEGET_XHTTP_PATH=/
+BEGET_XHTTP_PATH=/hls/stream.m3u8
 BEGET_ORIGIN_CERT_MODE=letsencrypt
 BEGET_ACME_EMAIL=admin@example.com
 BEGET_ACME_AGREE_TOS=true
@@ -532,6 +532,9 @@ Reality inbound принимает PROXY protocol, который общий Ngi
 `build/beget/<BEGET_ORIGIN_DOMAIN>/remnawave-host-values.md` и Extra из того же
 каталога. Address/SNI/Host должны указывать на `*.begetcdn.cloud` или custom
 CDN-домен, а не на `BEGET_ORIGIN_DOMAIN`. Метод — `GET`, mode — `packet-up`.
+Path — `/hls/stream.m3u8` без завершающего `/`, session/seq — в query,
+`xPaddingPlacement` — `header` на обеих сторонах. Обновление старой установки
+описано в [инструкции Beget](docs/BEGET.md).
 
 ### Direct Reality Host
 
@@ -610,10 +613,10 @@ curl -4vk -X POST \
 ```bash
 curl -4kso /dev/null -m 5 -w 'origin: %{http_code}\n' \
   --resolve node-beget.example.net:443:203.0.113.10 \
-  https://node-beget.example.net/
+  https://node-beget.example.net/hls/stream.m3u8
 
 curl -kso /dev/null -m 5 -w 'cdn: %{http_code}\n' \
-  https://abc123.begetcdn.cloud/
+  https://abc123.begetcdn.cloud/hls/stream.m3u8
 ```
 
 Для голого GET на Beget XHTTP ожидается HTTP `400` от origin и edge.

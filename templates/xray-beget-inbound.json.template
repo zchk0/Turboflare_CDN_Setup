@@ -32,11 +32,15 @@
       "mode": "packet-up",
       "path": "${BEGET_XHTTP_PATH}",
       "extra": {
+        "sessionIdPlacement": "query",
+        "sessionIdKey": "x_session",
+        "seqPlacement": "query",
+        "seqKey": "x_seq",
         "xPaddingKey": "_dc",
         "xPaddingHeader": "X-Cache",
         "xPaddingMethod": "tokenish",
         "xPaddingObfsMode": true,
-        "xPaddingPlacement": "queryInHeader",
+        "xPaddingPlacement": "header",
         "uplinkHTTPMethod": "GET"
       }
     }

@@ -29,6 +29,12 @@ the stream router.
 
 ## CDN behavior
 
+- Use the same file-like XHTTP path `${BEGET_XHTTP_PATH}` on both sides, without
+  a trailing slash. Session and sequence belong in query parameters
+  `x_session` and `x_seq`, not in path segments.
+- Use `xPaddingPlacement: header` with `X-Cache` on both sides. Do not use
+  `queryInHeader` (a full URL in this header returned 403 in integration tests).
+
 - Disable CDN and browser caching (or set the minimum CDN TTL of 1 second).
 - Disable Always Online, following origin redirects and ignoring query params.
 - Disable secure links, Referer/IP/User-Agent access policies for the first test.
@@ -50,3 +56,6 @@ curl -kso /dev/null -m 5 -w 'cdn: %{http_code}\n' \
 ```
 
 HTTP `400` from both requests is the expected response to a bare XHTTP GET.
+This does not verify a complete VLESS session. Refresh the client subscription
+and test actual traffic while watching the origin access/error logs. The CDN's
+`x-reason-code: 7` alone does not identify the blocking rule.

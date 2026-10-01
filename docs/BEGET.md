@@ -54,7 +54,7 @@ BEGET_NGINX_INTERNAL_PORT=8445
 BEGET_XRAY_LISTEN_IP=127.0.0.1
 BEGET_XRAY_XHTTP_PORT=10085
 BEGET_XRAY_INBOUND_TAG=xHTTP-Beget
-BEGET_XHTTP_PATH=/
+BEGET_XHTTP_PATH=/hls/stream.m3u8
 
 BEGET_ORIGIN_CERT_MODE=letsencrypt
 BEGET_ACME_ROOT=/var/www/beget-acme
@@ -135,7 +135,10 @@ Profile и назначьте профиль ноде. Затем создайт
 Критичные значения:
 
 - inbound: `xhttp`, `mode: packet-up`, `uplinkHTTPMethod: GET`;
-- padding: `_dc` / `X-Cache`, размещение `queryInHeader`;
+- Path: `/hls/stream.m3u8` без завершающего `/`, одинаковый в inbound и Host;
+- `sessionIdPlacement: query`, `sessionIdKey: x_session`;
+- `seqPlacement: query`, `seqKey: x_seq`;
+- padding: `xPaddingPlacement: header`, `xPaddingHeader: X-Cache`, `xPaddingMethod: tokenish`;
 - Address, SNI и Host клиента: `BEGET_CDN_SYSTEM_DOMAIN` или custom CDN-домен;
 - порт клиента: `443`;
 - `Allow insecure`: выключен.
@@ -144,6 +147,31 @@ Origin Nginx принудительно передаёт Xray заголовок
 `Host: BEGET_ORIGIN_DOMAIN`, соответствующий server-side inbound.
 
 ## Настройка ресурса в Beget
+
+Рабочий формат запросов проверен на реальном ресурсе: файловый путь, сессия и
+номер пакета в query, padding в заголовке без URL. В проверках путь со слешем
+в конце и полный URL в `X-Cache` возвращали CDN `403`. Поэтому `queryInHeader`
+для Beget больше не используется. Это результат проверок, а не расшифровка
+внутреннего `x-reason-code: 7` провайдера.
+
+### Обновление ранее установленного Beget
+
+`git pull` не меняет существующий `.env`. Замените в нём старое
+`BEGET_XHTTP_PATH=/` на `BEGET_XHTTP_PATH=/hls/stream.m3u8`, затем выполните:
+
+```bash
+bash scripts/render.sh --only beget
+```
+
+Обновите только Beget inbound в Config Profile, сохранив пользователей и другие
+inbound. В соответствующем Remnawave Host задайте новый Path и замените Extra
+содержимым сгенерированного `remnawave-xhttp-extra.json`. Согласованно обновите
+обе стороны: старые клиенты с `/` или `queryInHeader` несовместимы с новыми
+настройками. Обновите подписку и проверьте экспорт конфигурации клиента.
+
+Установщик не обновляет Remnawave автоматически. Для уже установленного vhost
+с `location /` переустановка Nginx и перевыпуск сертификата не нужны. При новом
+развёртывании используйте `bash install.sh --only beget`.
 
 В панели Beget создайте CDN-ресурс с источником типа **доменное имя** и
 значением `BEGET_ORIGIN_DOMAIN`. Это рекомендуемый вариант для SNI-router.
@@ -188,7 +216,7 @@ curl -4kso /dev/null -m 5 -w 'origin: %{http_code}\n' \
   "https://$BEGET_ORIGIN_DOMAIN$BEGET_XHTTP_PATH"
 
 curl -kso /dev/null -m 5 -w 'cdn: %{http_code}\n' \
-  "https://$BEGET_CDN_SYSTEM_DOMAIN$BEGET_XHTTP_PATH"
+  "https://${BEGET_CDN_CUSTOM_DOMAIN:-$BEGET_CDN_SYSTEM_DOMAIN}$BEGET_XHTTP_PATH"
 
 ss -lntp | grep -E ':443|:8445|:10085'
 sudo certbot renew --dry-run --cert-name "$BEGET_ORIGIN_DOMAIN"
@@ -202,6 +230,7 @@ sudo certbot renew --dry-run --cert-name "$BEGET_ORIGIN_DOMAIN"
 | Симптом | Что проверить |
 |---|---|
 | CDN `502`/`403`, origin `400` | источник ресурса, origin SNI/Host, TLS и firewall |
+| Голый GET проходит, клиент получает `403` | фактический Path без завершающего `/`, session/seq в query, `xPaddingPlacement: header` на обеих сторонах; проверить экспорт клиента |
 | Origin `000` | A-запись, TCP/443 и `nginx -t` |
 | CDN `000` | состояние ресурса, баланс и завершение применения настроек |
 | Edge `405` | GET присутствует в разрешённых методах |

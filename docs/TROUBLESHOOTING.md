@@ -70,10 +70,19 @@ Nginx при возврате к POST/query менять не требуется
 Для Beget проверьте:
 
 - `uplinkHTTPMethod: GET`, `xPaddingKey: _dc`, `xPaddingHeader: X-Cache`;
-- Path `/` одновременно в inbound и Host;
+- Path `/hls/stream.m3u8` без завершающего `/` одновременно в inbound и Host;
+- `sessionIdPlacement: query`, `sessionIdKey: x_session`, `seqPlacement: query`, `seqKey: x_seq` на обеих сторонах;
+- `xPaddingPlacement: header` на обеих сторонах: `queryInHeader` добавляет URL в `X-Cache` и в проверках вызывал CDN `403`;
 - GET разрешён в ресурсе CDN;
 - HTTP/3, кэш и оптимизация больших файлов выключены;
 - используются файлы из `build/beget/$BEGET_ORIGIN_DOMAIN/`.
+
+После обновления шаблонов измените старый `BEGET_XHTTP_PATH=/` в `.env`,
+перегенерируйте файлы, обновите Beget inbound и Host/Extra в Remnawave, затем
+обновите подписку клиента. Параметры других компонентов менять не нужно.
+Один ответ `400` на голый GET не подтверждает работу туннеля: проверьте реальный
+трафик и origin access.log. Сам по себе `x-reason-code: 7` не указывает точную
+причину отказа CDN.
 
 ## Публичный домен показывает origin-сертификат
 

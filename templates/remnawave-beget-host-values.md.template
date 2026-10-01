@@ -19,5 +19,15 @@
 | Flow | empty |
 | Internal Squad | `${BEGET_SQUAD_NAME}` |
 
-Use `remnawave-xhttp-extra.json` from the same build directory. Keep GET and
-the `_dc` / `X-Cache` padding fields identical on the client and server.
+Use `remnawave-xhttp-extra.json` from the same build directory. Set Path separately
+to `${BEGET_XHTTP_PATH}` with no trailing slash. Keep these settings identical
+on the client and server:
+
+- `uplinkHTTPMethod: GET`;
+- `sessionIdPlacement: query`, `sessionIdKey: x_session`;
+- `seqPlacement: query`, `seqKey: x_seq`;
+- `xPaddingPlacement: header`, `xPaddingHeader: X-Cache`, `xPaddingMethod: tokenish`.
+
+Do not use `queryInHeader`: it puts a full URL in `X-Cache`, which returned CDN
+403 responses in integration tests. After updating the inbound and Host Extra,
+refresh the client subscription and check the exported client configuration.

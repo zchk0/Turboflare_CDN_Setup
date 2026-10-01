@@ -321,6 +321,8 @@ if component_enabled beget; then
   (( BEGET_ORIGIN_PORT == 443 )) \
     || die "BEGET_ORIGIN_PORT must be 443 when using the shared public SNI router"
   validate_url_path BEGET_XHTTP_PATH
+  [[ "${BEGET_XHTTP_PATH}" != */ ]] \
+    || die "BEGET_XHTTP_PATH must not end with / (including the legacy / path). Set BEGET_XHTTP_PATH=/hls/stream.m3u8 in .env and update both the Beget inbound and client Host/Extra."
   validate_var_www_path BEGET_ACME_ROOT
   validate_safe_label BEGET_SQUAD_NAME
   claim_map_file BEGET_STREAM_MAP_FILE

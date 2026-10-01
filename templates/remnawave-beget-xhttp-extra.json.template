@@ -6,11 +6,15 @@
     "hMaxReusableSecs": "900-1800",
     "hKeepAlivePeriod": 0
   },
+  "sessionIdPlacement": "query",
+  "sessionIdKey": "x_session",
+  "seqPlacement": "query",
+  "seqKey": "x_seq",
   "xPaddingKey": "_dc",
   "xPaddingHeader": "X-Cache",
   "xPaddingMethod": "tokenish",
   "xPaddingObfsMode": true,
-  "xPaddingPlacement": "queryInHeader",
+  "xPaddingPlacement": "header",
   "uplinkHTTPMethod": "GET",
   "scMaxEachPostBytes": "500000-1000000",
   "scMinPostsIntervalMs": "50-150"
