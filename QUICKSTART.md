@@ -37,7 +37,14 @@ sudo bash install.sh --only turboflare,beeline,beget,reality
 ORIGIN_IP=203.0.113.10
 STREAM_MAP_DIR=/etc/nginx/stream-map.d
 CONFIG_PROFILE_NAME=LAB_PROFILE
+NGINX_WORKER_CONNECTIONS=65536
+NGINX_WORKER_RLIMIT_NOFILE=131072
 ```
+
+Установщик применяет эти лимиты ко всему Nginx и выставляет
+`worker_processes auto`. При изменении лимита systemd Nginx перезапускается;
+активные соединения могут прерваться. Для уже установленного сервера можно
+поднять только лимиты: [инструкция](docs/TROUBLESHOOTING.md#лимит-соединений-nginx).
 
 Локальные порты компонентов должны различаться. Значения по умолчанию:
 

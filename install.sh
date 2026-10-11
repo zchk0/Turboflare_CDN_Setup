@@ -153,6 +153,10 @@ BEELINE_STREAM_MAP_FILE="${BEELINE_STREAM_MAP_FILE:-beeline.map}"
 BEGET_STREAM_MAP_FILE="${BEGET_STREAM_MAP_FILE:-beget.map}"
 REALITY_STREAM_MAP_FILE="${REALITY_STREAM_MAP_FILE:-reality.map}"
 
+# Tune the valid existing configuration before installing new vhosts/certificates.
+bash "${SCRIPT_DIR}/scripts/tune-nginx-limits.sh" \
+  "${NGINX_WORKER_CONNECTIONS:-65536}" "${NGINX_WORKER_RLIMIT_NOFILE:-131072}"
+
 BUILD_ROOT="${SCRIPT_DIR}/build"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 

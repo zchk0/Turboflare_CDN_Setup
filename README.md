@@ -639,6 +639,7 @@ curl -kso /dev/null -m 5 -w 'cdn: %{http_code}\n' \
 |---|---|
 | `502` | listener `127.0.0.1:40112`, Config Profile и `proxy_pass` |
 | `413` | `client_max_body_size 4m` |
+| `worker_connections are not enough` / `Too many open files` | [поднять лимиты Nginx](docs/TROUBLESHOOTING.md#лимит-соединений-nginx): 65 536 соединений и 131 072 файлов на worker |
 | Direct origin работает, CDN нет | origin IP/port, HTTPS и делегирование |
 | Endpoint отдаёт заглушку | одинаковый `XHTTP_PATH` в трёх местах |
 | TLS error | Address, SNI и Host равны `DOMAIN`; insecure выключен |

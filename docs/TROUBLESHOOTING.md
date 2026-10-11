@@ -23,6 +23,71 @@ docker compose logs --since=15m remnanode \
   | grep -aEi 'xHTTP-TurboFlare|xHTTP-Yandexcloud|40112|2443|error|failed'
 ```
 
+## Лимит соединений Nginx
+
+При ошибках `worker_connections are not enough` или `Too many open files`
+поднимите лимиты соединений и открытых файлов на origin-сервере:
+
+```bash
+sudo bash scripts/tune-nginx-limits.sh
+```
+
+Скрипт сохраняет резервные копии и меняет существующие параметры
+`/etc/nginx/nginx.conf`, сохраняя остальные настройки:
+
+```nginx
+worker_processes auto;
+worker_rlimit_nofile 131072;
+
+events {
+    worker_connections 65536;
+    # Остальные существующие параметры events остаются здесь.
+}
+```
+
+`events` должен быть существующим блоком: второй блок добавлять не нужно.
+Скрипт рассчитан на обычную конфигурацию, где эти директивы и скобки `events`
+стоят на отдельных строках. Если они вынесены в include, сначала перенесите их
+в основной конфиг; дублирование будет обнаружено проверкой `nginx -t`.
+
+Также создаётся `/etc/systemd/system/nginx.service.d/99-cdn-limits.conf`:
+
+```ini
+[Service]
+LimitNOFILE=131072
+```
+
+После успешного `nginx -t` скрипт выполняет `systemctl daemon-reload` и
+перезапускает Nginx для применения изменённого лимита systemd. При этом
+активные соединения могут прерваться. Если меняется только конфигурация
+Nginx, выполняется reload. При ошибке восстанавливаются резервные копии.
+
+Лимиты можно задать явно:
+
+```bash
+sudo bash scripts/tune-nginx-limits.sh 65536 131072
+```
+
+При обычной установке эти же значения берутся из `NGINX_WORKER_CONNECTIONS`
+и `NGINX_WORKER_RLIMIT_NOFILE` в `.env`. Это глобальные параметры для всех
+компонентов, а не только выбранных через `--only`. Значение `nofile` должно
+быть больше числа соединений и не превышать `fs.nr_open`.
+
+Проверка после применения:
+
+```bash
+sudo nginx -t
+systemctl show nginx -p LimitNOFILE -p LimitNOFILESoft
+sudo grep 'Max open files' /proc/$(pgrep -o -x nginx)/limits
+sudo nginx -T 2>&1 | grep -E 'worker_processes|worker_connections|worker_rlimit_nofile'
+```
+
+`worker_connections` — лимит на каждый worker, включающий клиентские и
+upstream-соединения. В цепочке stream → HTTPS vhost → Xray один пользователь
+занимает несколько соединений. Фактическая ёмкость зависит также от памяти,
+CPU и нагрузки; 65 536 не означает 65 536 пользователей.
+См. [документацию Nginx](https://nginx.org/ru/docs/ngx_core_module.html#worker_connections).
+
 ## `502 Bad Gateway`
 
 Nginx не подключается к Xray. Проверьте:
