@@ -7,6 +7,7 @@ TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/beget-render-test.XXXXXXXX")"
 trap 'rm -rf -- "${TEST_DIR}"' EXIT
 mkdir -p "${TEST_DIR}/scripts"
 cp "${PROJECT_DIR}/scripts/render.sh" "${TEST_DIR}/scripts/"
+cp "${PROJECT_DIR}/scripts/turboflare-domains.sh" "${TEST_DIR}/scripts/"
 cp -R "${PROJECT_DIR}/templates" "${TEST_DIR}/templates"
 
 # Fixture credentials are only for rendering; no services or certificates start.

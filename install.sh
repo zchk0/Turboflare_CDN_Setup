@@ -153,6 +153,11 @@ BEELINE_STREAM_MAP_FILE="${BEELINE_STREAM_MAP_FILE:-beeline.map}"
 BEGET_STREAM_MAP_FILE="${BEGET_STREAM_MAP_FILE:-beget.map}"
 REALITY_STREAM_MAP_FILE="${REALITY_STREAM_MAP_FILE:-reality.map}"
 
+if component_enabled turboflare; then
+  source "${SCRIPT_DIR}/scripts/turboflare-domains.sh"
+  parse_turboflare_domains
+fi
+
 # Tune the valid existing configuration before installing new vhosts/certificates.
 bash "${SCRIPT_DIR}/scripts/tune-nginx-limits.sh" \
   "${NGINX_WORKER_CONNECTIONS:-65536}" "${NGINX_WORKER_RLIMIT_NOFILE:-131072}"
@@ -297,16 +302,18 @@ EOF
 install -d -m 755 "${STREAM_MAP_DIR}"
 
 if component_enabled turboflare; then
-  TURBOFLARE_BUILD_DIR="${BUILD_ROOT}/turboflare/${DOMAIN}"
-  TURBOFLARE_SITE_AVAILABLE="/etc/nginx/sites-available/${DOMAIN}.conf"
-  TURBOFLARE_SITE_ENABLED="/etc/nginx/sites-enabled/${DOMAIN}.conf"
-
-  install_self_signed_certificate "${DOMAIN}" "${ORIGIN_CERT_DAYS}" true
   install_cover "${COVER_ROOT}" "${COVER_TITLE}"
-  backup_and_install "${TURBOFLARE_BUILD_DIR}/nginx-site.conf" "${TURBOFLARE_SITE_AVAILABLE}" 644
-  enable_site "${TURBOFLARE_SITE_AVAILABLE}" "${TURBOFLARE_SITE_ENABLED}"
-  backup_and_install "${TURBOFLARE_BUILD_DIR}/nginx-stream-map-entry.map" \
+  for DOMAIN in "${TURBOFLARE_DOMAINS[@]}"; do
+    TURBOFLARE_BUILD_DIR="${BUILD_ROOT}/turboflare/${DOMAIN}"
+    TURBOFLARE_SITE_AVAILABLE="/etc/nginx/sites-available/${DOMAIN}.conf"
+    TURBOFLARE_SITE_ENABLED="/etc/nginx/sites-enabled/${DOMAIN}.conf"
+    install_self_signed_certificate "${DOMAIN}" "${ORIGIN_CERT_DAYS}" true
+    backup_and_install "${TURBOFLARE_BUILD_DIR}/nginx-site.conf" "${TURBOFLARE_SITE_AVAILABLE}" 644
+    enable_site "${TURBOFLARE_SITE_AVAILABLE}" "${TURBOFLARE_SITE_ENABLED}"
+  done
+  backup_and_install "${BUILD_ROOT}/shared/turboflare-stream-map-entry.map" \
     "${STREAM_MAP_DIR}/${TURBOFLARE_STREAM_MAP_FILE}" 644
+  DOMAIN="${TURBOFLARE_PRIMARY_DOMAIN}"
 fi
 
 if component_enabled beeline; then
@@ -396,9 +403,12 @@ printf '\nCombined Xray inbounds: %s/shared/xray-inbounds.json\n' "${BUILD_ROOT}
 printf 'Components omitted from this run were not removed.\n'
 
 if component_enabled turboflare; then
-  printf '\nTurboFlare files: %s\n' "${TURBOFLARE_BUILD_DIR}"
-  printf 'Direct origin check:\n'
-  printf 'curl -4vk --resolve %s:443:%s https://%s/\n' "${DOMAIN}" "${ORIGIN_IP}" "${DOMAIN}"
+  for domain in "${TURBOFLARE_DOMAINS[@]}"; do
+    printf '\nTurboFlare files: %s/turboflare/%s\n' "${BUILD_ROOT}" "${domain}"
+    printf 'Direct origin check:\n'
+    printf 'curl -4vk --resolve %s:443:%s https://%s/\n' "${domain}" "${ORIGIN_IP}" "${domain}"
+  done
+  printf 'All TurboFlare domains share inbound %s. Add it only once.\n' "${XRAY_INBOUND_TAG}"
 fi
 
 if component_enabled beeline; then

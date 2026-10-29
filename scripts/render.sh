@@ -222,7 +222,8 @@ validate_safe_label CONFIG_PROFILE_NAME
 if component_enabled turboflare; then
   require_variables DOMAIN ORIGIN_PORT NGINX_INTERNAL_PORT XRAY_LISTEN_IP XRAY_XHTTP_PORT \
     XRAY_INBOUND_TAG XHTTP_PATH ORIGIN_CERT_DAYS COVER_ROOT COVER_TITLE SQUAD_NAME
-  validate_domain DOMAIN
+  source "${SCRIPT_DIR}/turboflare-domains.sh"
+  parse_turboflare_domains
   validate_port ORIGIN_PORT
   validate_url_path XHTTP_PATH
   validate_var_www_path COVER_ROOT
@@ -235,7 +236,9 @@ if component_enabled turboflare; then
   claim_port NGINX_INTERNAL_PORT "TurboFlare Nginx"
   claim_port XRAY_XHTTP_PORT "TurboFlare Xray"
   claim_tag XRAY_INBOUND_TAG
-  claim_origin_sni "${DOMAIN}" "TurboFlare"
+  for domain in "${TURBOFLARE_DOMAINS[@]}"; do
+    claim_origin_sni "${domain}" "TurboFlare"
+  done
 fi
 
 if component_enabled beeline; then
@@ -433,6 +436,7 @@ export DEPLOY_COMPONENTS_EFFECTIVE ORIGIN_IP STREAM_MAP_DIR CONFIG_PROFILE_NAME
 export TURBOFLARE_STREAM_MAP_FILE BEELINE_STREAM_MAP_FILE BEGET_STREAM_MAP_FILE
 export REALITY_STREAM_MAP_FILE
 export DOMAIN ORIGIN_PORT NGINX_INTERNAL_PORT XRAY_LISTEN_IP XRAY_NGINX_BACKEND
+export TURBOFLARE_PRIMARY_DOMAIN
 export XRAY_XHTTP_PORT XRAY_INBOUND_TAG XHTTP_PATH ORIGIN_CERT_DAYS
 export COVER_ROOT COVER_TITLE SQUAD_NAME
 export BEELINE_ORIGIN_DOMAIN BEELINE_CDN_SYSTEM_DOMAIN BEELINE_CDN_CUSTOM_DOMAIN
@@ -459,6 +463,7 @@ SUBST_VARIABLES='${DEPLOY_COMPONENTS_EFFECTIVE} ${ORIGIN_IP} ${STREAM_MAP_DIR} $
 
 generated_files=()
 inbound_files=()
+SUBST_VARIABLES+=' ${TURBOFLARE_PRIMARY_DOMAIN}'
 
 render() {
   local source_file="$1"
@@ -468,15 +473,24 @@ render() {
 }
 
 if component_enabled turboflare; then
+  TURBOFLARE_MAP="${SHARED_BUILD_DIR}/turboflare-stream-map-entry.map"
+  : > "${TURBOFLARE_MAP}"
+  generated_files+=("${TURBOFLARE_MAP}")
+  for DOMAIN in "${TURBOFLARE_DOMAINS[@]}"; do
+    TURBOFLARE_BUILD_DIR="${BUILD_ROOT}/turboflare/${DOMAIN}"
+    mkdir -p "${TURBOFLARE_BUILD_DIR}"
+    render "${PROJECT_DIR}/templates/nginx-site.conf.template" "${TURBOFLARE_BUILD_DIR}/nginx-site.conf"
+    render "${PROJECT_DIR}/templates/nginx-stream-map-entry.conf.template" "${TURBOFLARE_BUILD_DIR}/nginx-stream-map-entry.map"
+    cat "${TURBOFLARE_BUILD_DIR}/nginx-stream-map-entry.map" >> "${TURBOFLARE_MAP}"
+    render "${PROJECT_DIR}/templates/remnawave-xhttp-extra.json.template" "${TURBOFLARE_BUILD_DIR}/remnawave-xhttp-extra.json"
+    render "${PROJECT_DIR}/templates/remnawave-host-values.md.template" "${TURBOFLARE_BUILD_DIR}/remnawave-host-values.md"
+    jq empty "${TURBOFLARE_BUILD_DIR}/remnawave-xhttp-extra.json"
+  done
+  # One shared inbound. Nginx normalizes Host to the primary domain for Xray.
+  DOMAIN="${TURBOFLARE_PRIMARY_DOMAIN}"
   TURBOFLARE_BUILD_DIR="${BUILD_ROOT}/turboflare/${DOMAIN}"
-  mkdir -p "${TURBOFLARE_BUILD_DIR}"
-  render "${PROJECT_DIR}/templates/nginx-site.conf.template" "${TURBOFLARE_BUILD_DIR}/nginx-site.conf"
-  render "${PROJECT_DIR}/templates/nginx-stream-map-entry.conf.template" "${TURBOFLARE_BUILD_DIR}/nginx-stream-map-entry.map"
   render "${PROJECT_DIR}/templates/xray-inbound.json.template" "${TURBOFLARE_BUILD_DIR}/xray-inbound.json"
-  render "${PROJECT_DIR}/templates/remnawave-xhttp-extra.json.template" "${TURBOFLARE_BUILD_DIR}/remnawave-xhttp-extra.json"
-  render "${PROJECT_DIR}/templates/remnawave-host-values.md.template" "${TURBOFLARE_BUILD_DIR}/remnawave-host-values.md"
   jq empty "${TURBOFLARE_BUILD_DIR}/xray-inbound.json"
-  jq empty "${TURBOFLARE_BUILD_DIR}/remnawave-xhttp-extra.json"
   inbound_files+=("${TURBOFLARE_BUILD_DIR}/xray-inbound.json")
 fi
 
@@ -534,7 +548,10 @@ chmod 600 "${generated_files[@]}"
 printf 'Generated components: %s\n' "${DEPLOY_COMPONENTS_EFFECTIVE}"
 printf 'Combined Xray inbounds: %s\n' "${SHARED_BUILD_DIR}/xray-inbounds.json"
 if component_enabled turboflare; then
-  printf 'TurboFlare files: %s\n' "${TURBOFLARE_BUILD_DIR}"
+  for domain in "${TURBOFLARE_DOMAINS[@]}"; do
+    printf 'TurboFlare files: %s/turboflare/%s\n' "${BUILD_ROOT}" "${domain}"
+  done
+  printf 'Shared TurboFlare inbound: %s/xray-inbound.json\n' "${TURBOFLARE_BUILD_DIR}"
 fi
 if component_enabled beeline; then
   printf 'Beeline files: %s\n' "${BEELINE_BUILD_DIR}"

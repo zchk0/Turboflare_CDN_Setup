@@ -18,3 +18,7 @@
 | Allow insecure | `OFF` |
 | Flow | empty |
 | Internal Squad | `${SQUAD_NAME}` |
+
+All TurboFlare domains share this inbound. Add it only once, from
+`build/turboflare/${TURBOFLARE_PRIMARY_DOMAIN}/xray-inbound.json`.
+Create a separate Remnawave Host for each domain using the values above.

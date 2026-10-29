@@ -69,6 +69,29 @@ XHTTP_PATH=/static/getFile/video/segment.ts
 
 TurboFlare использует `packet-up` и POST по умолчанию.
 
+Несколько доменов можно указать через запятую:
+
+```dotenv
+DOMAIN=cdn.example.com,cdn2.example.com
+```
+
+Каждый домен нужно подключить к TurboFlare с тем же origin. При добавлении
+домена оставляйте уже работающий домен первым. Скрипт создаст отдельные
+Nginx vhost и origin-сертификат для каждого домена, а все SNI направит на общий
+`NGINX_INTERNAL_PORT`. Xray inbound, порт, путь и пользователи будут общими:
+Nginx передаёт в Xray Host первого домена.
+
+Запустите `sudo bash install.sh --only turboflare`. В Remnawave добавьте общий
+inbound только один раз (если он уже установлен, повторно добавлять его не нужно),
+затем создайте Host для каждого домена с его Address/SNI/Host. Значения находятся
+в `build/turboflare/<домен>/remnawave-host-values.md`, а общий inbound —
+в `build/turboflare/<первый-домен>/xray-inbound.json`.
+
+Для списка с пробелами используйте кавычки: `DOMAIN="cdn.example.com, cdn2.example.com"`.
+Пустые значения и повторяющиеся домены отклоняются. При удалении имени из списка
+оно исчезнет из общей SNI map; старые vhost и сертификаты автоматически не удаляются.
+Смена первого домена требует обновить общий inbound в Remnawave.
+
 ## 4. Beeline
 
 Для `beeline` задайте:

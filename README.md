@@ -132,6 +132,12 @@ DEPLOY_COMPONENTS=turboflare,reality
 
 Для TurboFlare минимально замените:
 
+`DOMAIN` принимает один домен или список через запятую. 
+Все домены используют один Xray inbound;
+при расширении списка оставляйте текущий домен первым. Для каждого домена
+создаются отдельные Nginx vhost, origin-сертификат и памятка Remnawave Host.
+Порядок подключения описан в [быстром старте](QUICKSTART.md#3-turboflare).
+
 ```dotenv
 DOMAIN=cdn.example.com
 ORIGIN_IP=203.0.113.10
