@@ -438,7 +438,7 @@ fi
 printf '\nExpected local listeners after assigning the generated inbounds to the node:\n'
 listener_ports=(443)
 if component_enabled turboflare; then
-  listener_ports+=("${NGINX_INTERNAL_PORT}" "${XRAY_XHTTP_PORT}")
+  listener_ports+=(80 "${NGINX_INTERNAL_PORT}" "${XRAY_XHTTP_PORT}")
 fi
 if component_enabled beeline; then
   listener_ports+=("${BEELINE_NGINX_INTERNAL_PORT}" "${BEELINE_XRAY_XHTTP_PORT}")

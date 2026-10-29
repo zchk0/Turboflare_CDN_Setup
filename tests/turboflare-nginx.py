@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise generated TLS vhosts and Host forwarding using real local Nginx.
+"""Exercise generated HTTP/TLS vhosts and XHTTP forwarding using real Nginx.
 
 Requires bash, jq, envsubst, openssl and nginx. Uses temporary files and random
 loopback ports; does not install configuration or reload the system service.
@@ -25,9 +25,17 @@ def free_port():
 
 class Backend(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        body = self.headers['Host'].encode()
+        self.respond(self.headers['Host'].encode())
+
+    def do_POST(self):
+        self.respond(self.rfile.read(int(self.headers['Content-Length'])))
+
+    def respond(self, body):
         self.send_response(200)
         self.send_header('Content-Length', str(len(body)))
+        self.send_header('X-Backend-Host', self.headers['Host'])
+        self.send_header('X-Backend-Proto', self.headers['X-Forwarded-Proto'])
+        self.send_header('X-Backend-Path', self.path)
         self.end_headers()
         self.wfile.write(body)
 
@@ -44,6 +52,7 @@ old_nginx = tuple(map(int, re.search(r'nginx/(\d+)\.(\d+)', version.stderr).grou
 
 with tempfile.TemporaryDirectory(prefix='turboflare-nginx-') as tmp:
     root = Path(tmp)
+    (root / 'index.html').write_text('cover page')
     shutil.copytree(project / 'scripts', root / 'scripts')
     shutil.copytree(project / 'templates', root / 'templates')
     backend = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Backend)
@@ -101,19 +110,37 @@ http {{
             except OSError:
                 time.sleep(0.1)
         for domain in ['meowbot.lol', 'meowow.lol']:
-            ctx = ssl.create_default_context(cafile=str(root/'ssl'/domain/'origin.crt'))
-            with socket.create_connection(('127.0.0.1', tls_port), timeout=5) as sock:
-                sock.sendall(f'PROXY TCP4 127.0.0.1 127.0.0.1 12345 {tls_port}\r\n'.encode())
-                with ctx.wrap_socket(sock, server_hostname=domain) as tls:
-                    tls.sendall(f'GET /static/getFile/video/segment.ts HTTP/1.1\r\nHost: {domain}\r\nConnection: close\r\n\r\n'.encode())
-                    response = b''
-                    while data := tls.recv(8192):
-                        response += data
-            assert response.startswith(b'HTTP/1.1 200'), response
-            assert response.split(b'\r\n\r\n', 1)[1] == b'meowbot.lol', response
+            for scheme, port in [('http', http_port), ('https', tls_port)]:
+                for method, path, payload in [
+                    ('GET', '/', b''),
+                    ('GET', '/static/getFile/video/segment.ts?auth=test', b''),
+                    ('POST', '/static/getFile/video/segment.ts?auth=test&chunk_id=0', b'\x00xhttp\xff\r\nbody'),
+                ]:
+                    with socket.create_connection(('127.0.0.1', port), timeout=5) as sock:
+                        conn = sock
+                        if scheme == 'https':
+                            sock.sendall(f'PROXY TCP4 127.0.0.1 127.0.0.1 12345 {port}\r\n'.encode())
+                            ctx = ssl.create_default_context(cafile=str(root/'ssl'/domain/'origin.crt'))
+                            conn = ctx.wrap_socket(sock, server_hostname=domain)
+                        with conn:
+                            conn.sendall((f'{method} {path} HTTP/1.1\r\nHost: {domain}\r\n'
+                                          f'Content-Length: {len(payload)}\r\nConnection: close\r\n\r\n').encode() + payload)
+                            response = b''
+                            while data := conn.recv(8192):
+                                response += data
+                    assert response.startswith(b'HTTP/1.1 200'), response
+                    headers, body = response.split(b'\r\n\r\n', 1)
+                    assert b'\r\nLocation:' not in headers, headers
+                    if path == '/':
+                        assert body == b'cover page', response
+                    else:
+                        assert b'X-Backend-Host: meowbot.lol' in headers, headers
+                        assert f'X-Backend-Proto: {scheme}'.encode() in headers, headers
+                        assert f'X-Backend-Path: {path}'.encode() in headers, headers
+                        assert body == (payload if method == 'POST' else b'meowbot.lol'), response
     finally:
         proc.terminate()
         proc.wait(timeout=10)
         backend.shutdown()
         backend.server_close()
-print('PASS: both domains select their own TLS certificate and forward the primary Host to the shared backend')
+print('PASS: both domains over HTTP/HTTPS, TLS certificates, primary Host, GET/POST body/query preservation and no redirects')

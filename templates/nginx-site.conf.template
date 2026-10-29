@@ -1,13 +1,7 @@
 server {
+    # CDN origin fetches may use HTTP or HTTPS. Both reach the same locations;
+    # redirecting HTTP would break POST uploads or create a CDN redirect loop.
     listen 80;
-    server_name ${DOMAIN};
-
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-server {
     listen 127.0.0.1:${NGINX_INTERNAL_PORT} ssl proxy_protocol;
     http2 on;
 
@@ -37,7 +31,7 @@ server {
         proxy_set_header Host ${TURBOFLARE_PRIMARY_DOMAIN};
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header Connection "";
         proxy_set_header Expect "";
